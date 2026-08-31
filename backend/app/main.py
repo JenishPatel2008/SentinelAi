@@ -1,18 +1,28 @@
-from fastapi import FastAPI
-from dotenv import load_dotenv
 import os
+
+from dotenv import load_dotenv
+from fastapi import FastAPI
+
+from .database.database import Base, engine
+from .database import models
+
 
 load_dotenv()
 
+
 APP_NAME = os.getenv(
     "APP_NAME",
-    "Sentinel AI Border Control Unit"
+    "Sentinel AI Border Control Unit",
 )
 
 APP_VERSION = os.getenv(
     "APP_VERSION",
-    "0.1.0"
+    "0.1.0",
 )
+
+
+Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(
     title=APP_NAME,
@@ -27,7 +37,10 @@ app = FastAPI(
 @app.get("/")
 async def root():
     return {
-        "message": "Sentinel AI Border Control Unit backend is running",
+        "message": (
+            "Sentinel AI Border Control Unit "
+            "backend is running"
+        ),
         "version": APP_VERSION,
     }
 

@@ -1,22 +1,23 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
-function PlaceholderPage({ title }) {
+import Dashboard from "./pages/Dashboard";
+
+function Placeholder({ title }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#090b10] text-white">
-      <div className="text-center">
-        <p className="mb-2 text-sm tracking-[0.25em] text-slate-500">
-          SENTINEL AI
-        </p>
-
-        <h1 className="text-3xl font-semibold">
-          {title}
-        </h1>
-      </div>
+    <div className="flex min-h-screen items-center justify-center bg-[#090c11]">
+      <h1 className="text-2xl font-semibold text-white">
+        {title}
+      </h1>
     </div>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
@@ -27,56 +28,49 @@ function App() {
 
         <Route
           path="/dashboard"
-          element={<PlaceholderPage title="Dashboard" />}
+          element={<Dashboard />}
         />
 
         <Route
           path="/monitoring"
-          element={<PlaceholderPage title="Live Monitoring" />}
+          element={<Placeholder title="Live Monitoring" />}
         />
 
         <Route
           path="/alerts"
-          element={<PlaceholderPage title="Alerts" />}
+          element={<Placeholder title="Alerts" />}
         />
 
         <Route
           path="/events"
-          element={<PlaceholderPage title="Events" />}
+          element={<Placeholder title="Events" />}
         />
 
         <Route
           path="/cameras"
-          element={<PlaceholderPage title="Cameras" />}
+          element={<Placeholder title="Cameras" />}
         />
 
         <Route
           path="/map"
-          element={<PlaceholderPage title="Border Map" />}
+          element={<Placeholder title="Border Map" />}
         />
 
         <Route
           path="/analytics"
-          element={<PlaceholderPage title="Analytics" />}
+          element={<Placeholder title="Analytics" />}
         />
 
         <Route
           path="/settings"
-          element={<PlaceholderPage title="Settings" />}
+          element={<Placeholder title="Settings" />}
         />
 
         <Route
           path="/login"
-          element={<PlaceholderPage title="Login" />}
-        />
-
-        <Route
-          path="*"
-          element={<PlaceholderPage title="Page Not Found" />}
+          element={<Placeholder title="Login" />}
         />
       </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;
