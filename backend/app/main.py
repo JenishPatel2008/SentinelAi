@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from .database.database import Base, engine
@@ -19,10 +20,39 @@ app = FastAPI(
 )
 
 
+# ---------------------------------------------------------
+# CORS
+# ---------------------------------------------------------
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------------------------------------------------------
+# Database
+# ---------------------------------------------------------
+
 Base.metadata.create_all(bind=engine)
+
+
+# ---------------------------------------------------------
+# API Routers
+# ---------------------------------------------------------
 
 app.include_router(cameras_router)
 
+
+# ---------------------------------------------------------
+# Root
+# ---------------------------------------------------------
 
 @app.get("/")
 async def root():
@@ -31,6 +61,10 @@ async def root():
         "version": "0.1.0",
     }
 
+
+# ---------------------------------------------------------
+# Health
+# ---------------------------------------------------------
 
 @app.get("/health")
 async def health():
