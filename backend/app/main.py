@@ -1,32 +1,17 @@
-import os
-
-from dotenv import load_dotenv
 from fastapi import FastAPI
+from dotenv import load_dotenv
 
 from .database.database import Base, engine
 from .database import models
+from .api.cameras import router as cameras_router
 
 
 load_dotenv()
 
 
-APP_NAME = os.getenv(
-    "APP_NAME",
-    "Sentinel AI Border Control Unit",
-)
-
-APP_VERSION = os.getenv(
-    "APP_VERSION",
-    "0.1.0",
-)
-
-
-Base.metadata.create_all(bind=engine)
-
-
 app = FastAPI(
-    title=APP_NAME,
-    version=APP_VERSION,
+    title="Sentinel AI Border Control Unit",
+    version="0.1.0",
     description=(
         "AI-powered intelligent border surveillance "
         "and video analytics platform."
@@ -34,14 +19,16 @@ app = FastAPI(
 )
 
 
+Base.metadata.create_all(bind=engine)
+
+app.include_router(cameras_router)
+
+
 @app.get("/")
 async def root():
     return {
-        "message": (
-            "Sentinel AI Border Control Unit "
-            "backend is running"
-        ),
-        "version": APP_VERSION,
+        "message": "Sentinel AI Border Control Unit backend is running",
+        "version": "0.1.0",
     }
 
 
@@ -49,6 +36,6 @@ async def root():
 async def health():
     return {
         "status": "healthy",
-        "service": APP_NAME,
-        "version": APP_VERSION,
+        "service": "Sentinel AI Border Control Unit",
+        "version": "0.1.0",
     }
