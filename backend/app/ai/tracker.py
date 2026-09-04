@@ -27,7 +27,8 @@ class CentroidTracker:
             if track_id == self.next_id:
                 self.next_id += 1
             x1, y1, x2, y2 = detection["bbox"]
-            tracked = {**detection, "track_id": track_id, "center": ((x1+x2)/2, (y1+y2)/2)}
+            hits = self.tracks.get(track_id, {}).get("hits", 0) + 1
+            tracked = {**detection, "track_id": track_id, "center": ((x1+x2)/2, (y1+y2)/2), "hits": hits}
             self.tracks[track_id] = tracked
             used.add(track_id)
             updated.append(tracked)

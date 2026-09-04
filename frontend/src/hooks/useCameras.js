@@ -13,7 +13,11 @@ export default function useCameras() {
 
       const data = await getCameras();
 
-      setCameras(Array.isArray(data) ? data : data.cameras || []);
+      if (!Array.isArray(data)) {
+        throw new Error("Unexpected camera list response from the surveillance backend");
+      }
+
+      setCameras(data);
     } catch (err) {
       console.error("Failed to load cameras:", err);
       setError(err.message || "Failed to load cameras");

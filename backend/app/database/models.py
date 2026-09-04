@@ -130,26 +130,22 @@ class Event(Base):
         nullable=False,
     )
 
-    type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="low", nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
-    severity: Mapped[str] = mapped_column(
-        String(20),
-        default="low",
-        nullable=False,
-    )
 
-    description: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
+class Zone(Base):
+    __tablename__ = "zones"
 
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-        index=True,
-    )
-
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("cameras.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    zone_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    polygon_points: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -197,6 +193,7 @@ class Alert(Base):
     track_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     object_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     zone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    zone_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)

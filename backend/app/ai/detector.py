@@ -1,11 +1,15 @@
 from pathlib import Path
 
+SUPPORTED_CLASSES = {"person", "car", "truck", "motorcycle", "bus", "bicycle"}
+
 class YOLODetector:
     """Lazy YOLO adapter; importing the backend does not require model.pt."""
-    def __init__(self, model_path: str | Path = "ai_models/yolo/model.pt", confidence: float = .45):
+    def __init__(self, model_path: str | Path = "ai_models/yolo/model.pt", confidence: float = .45, min_width=12, min_height=20):
         self.model_path = Path(model_path)
         self.confidence = confidence
         self.model = None
+        self.min_width = min_width
+        self.min_height = min_height
 
     def load(self):
         if not self.model_path.exists():
@@ -22,5 +26,11 @@ class YOLODetector:
         for box in results.boxes:
             coords = box.xyxy[0].tolist()
             class_id = int(box.cls[0])
-            detections.append({"class": names[class_id], "confidence": float(box.conf[0]), "bbox": coords})
+            object_class = names[class_id]
+            width, height = coords[2] - coords[0], coords[3] - coords[1]
+            if object_class not in SUPPORTED_CLASSES or width < self.min_width or height < self.min_height:
+                continue
+            if object_class == "person" and not .15 <= width / max(height, 1) <= 1.25:
+                continue
+            detections.append({"class": object_class, "confidence": float(box.conf[0]), "bbox": coords})
         return detections

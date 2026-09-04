@@ -14,6 +14,7 @@ from .api.detections import router as detections_router
 from .api.analytics import router as analytics_router
 from .api.streams import router as streams_router
 from .api.websocket import router as websocket_router
+from .api.zones import router as zones_router
 
 
 load_dotenv()
@@ -66,6 +67,7 @@ app.include_router(detections_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api")
 app.include_router(streams_router, prefix="/api")
 app.include_router(websocket_router)
+app.include_router(zones_router)
 app.mount("/evidence", StaticFiles(directory="data/evidence"), name="evidence")
 
 

@@ -29,22 +29,22 @@ async function request(endpoint, options = {}) {
 }
 
 export function getCameras() {
-  return request("/cameras");
+  return request("/api/cameras");
 }
 
 export function getCamera(id) {
-  return request(`/cameras/${id}`);
+  return request(`/api/cameras/${id}`);
 }
 
 export function createCamera(camera) {
-  return request("/cameras", {
+  return request("/api/cameras", {
     method: "POST",
     body: JSON.stringify(camera),
   });
 }
 
 export function deleteCamera(id) {
-  return request(`/cameras/${id}`, {
+  return request(`/api/cameras/${id}`, {
     method: "DELETE",
   });
 }
@@ -72,3 +72,9 @@ export function startStream(cameraId) {
 export function stopStream(cameraId) {
   return request("/api/streams/stop", { method: "POST", body: JSON.stringify({ camera_id: cameraId }) });
 }
+
+export function getZones(cameraId) { return request(`/api/cameras/${cameraId}/zones`); }
+export function createZone(cameraId, zone) { return request(`/api/cameras/${cameraId}/zones`, { method: "POST", body: JSON.stringify(zone) }); }
+export function updateZone(zoneId, zone) { return request(`/api/zones/${zoneId}`, { method: "PUT", body: JSON.stringify(zone) }); }
+export function deleteZone(zoneId) { return request(`/api/zones/${zoneId}`, { method: "DELETE" }); }
+export function setZoneEnabled(zoneId, enabled) { return request(`/api/zones/${zoneId}/enabled?enabled=${enabled}`, { method: "PATCH" }); }

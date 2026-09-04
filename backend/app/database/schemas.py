@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CameraBase(BaseModel):
@@ -78,6 +78,7 @@ class AlertResponse(BaseModel):
     track_id: int | None = None
     object_type: str | None = None
     zone: str | None = None
+    zone_type: str | None = None
     score: int | None = None
     reason: str | None = None
     evidence_path: str | None = None
@@ -97,3 +98,59 @@ class AnalyticsResponse(BaseModel):
     active_alerts: int
     critical_alerts: int
     total_events: int
+
+
+ZONE_TYPES = {"restricted", "high_security", "vehicle_restricted", "monitoring"}
+
+class ZoneBase(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    zone_type: str
+    polygon_points: list[dict[str, float]] = Field(min_length=3)
+    enabled: bool = True
+
+    @field_validator("zone_type")
+    @classmethod
+    def supported_zone_type(cls, value):
+        if value not in ZONE_TYPES:
+            raise ValueError(f"Unsupported zone type: {value}")
+        return value
+
+    @field_validator("polygon_points")
+    @classmethod
+    def normalized_points(cls, points):
+        for point in points:
+            if set(point) != {"x", "y"} or not (0 <= point["x"] <= 1 and 0 <= point["y"] <= 1):
+                raise ValueError("Polygon points must contain normalized x/y values between 0 and 1")
+        return points
+
+class ZoneCreate(ZoneBase):
+    pass
+
+class ZoneUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    zone_type: str | None = None
+    polygon_points: list[dict[str, float]] | None = Field(default=None, min_length=3)
+    enabled: bool | None = None
+
+    @field_validator("zone_type")
+    @classmethod
+    def supported_update_type(cls, value):
+        if value is not None and value not in ZONE_TYPES:
+            raise ValueError(f"Unsupported zone type: {value}")
+        return value
+
+    @field_validator("polygon_points")
+    @classmethod
+    def normalized_update_points(cls, points):
+        if points is not None:
+            for point in points:
+                if set(point) != {"x", "y"} or not (0 <= point["x"] <= 1 and 0 <= point["y"] <= 1):
+                    raise ValueError("Polygon points must contain normalized x/y values between 0 and 1")
+        return points
+
+class ZoneResponse(ZoneBase):
+    id: int
+    camera_id: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)

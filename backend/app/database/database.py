@@ -35,7 +35,7 @@ def ensure_compatibility_columns():
     inspector = inspect(engine)
     additions = {
         "cameras": {"source_type": "VARCHAR(20) DEFAULT 'video'", "status": "VARCHAR(20) DEFAULT 'offline'"},
-        "alerts": {"camera_id": "INTEGER", "track_id": "INTEGER", "object_type": "VARCHAR(50)", "zone": "VARCHAR(100)", "score": "INTEGER", "reason": "TEXT", "evidence_path": "VARCHAR(500)", "timestamp": "DATETIME"},
+        "alerts": {"camera_id": "INTEGER", "track_id": "INTEGER", "object_type": "VARCHAR(50)", "zone": "VARCHAR(100)", "zone_type": "VARCHAR(30)", "score": "INTEGER", "reason": "TEXT", "evidence_path": "VARCHAR(500)", "timestamp": "DATETIME"},
         "events": {"type": "VARCHAR(100)"},
     }
     with engine.begin() as connection:
