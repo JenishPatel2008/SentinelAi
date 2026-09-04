@@ -1,76 +1,27 @@
-import {
-  BrowserRouter,
-  Navigate,
-  Route,
-  Routes,
-} from "react-router-dom";
+import { useEffect, useState } from "react";
+import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import { Activity, AlertTriangle, BarChart3, Bell, Camera, ChevronDown, HelpCircle, LayoutDashboard, LogOut, Map, Search, Settings, Shield, SlidersHorizontal, Video } from "lucide-react";
+import { getAlerts, getAnalytics, getCameras, getDetections, getEvents } from "./services/api";
+import "./App.css";
 
-import Dashboard from "./pages/Dashboard";
+const nav = [["Dashboard", "/dashboard", LayoutDashboard], ["Live Monitoring", "/monitoring", Video], ["Alerts", "/alerts", Bell], ["Analytics", "/analytics", BarChart3], ["Archive", "/events", Activity], ["Cameras", "/cameras", Camera], ["Border Map", "/border-map", Map], ["Settings", "/settings", Settings]];
 
-function Placeholder({ title }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#090c11]">
-      <h1 className="text-2xl font-semibold text-white">
-        {title}
-      </h1>
-    </div>
-  );
-}
-
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="/"
-          element={<Navigate to="/dashboard" replace />}
-        />
-
-        <Route
-          path="/dashboard"
-          element={<Dashboard />}
-        />
-
-        <Route
-          path="/monitoring"
-          element={<Placeholder title="Live Monitoring" />}
-        />
-
-        <Route
-          path="/alerts"
-          element={<Placeholder title="Alerts" />}
-        />
-
-        <Route
-          path="/events"
-          element={<Placeholder title="Events" />}
-        />
-
-        <Route
-          path="/cameras"
-          element={<Placeholder title="Cameras" />}
-        />
-
-        <Route
-          path="/map"
-          element={<Placeholder title="Border Map" />}
-        />
-
-        <Route
-          path="/analytics"
-          element={<Placeholder title="Analytics" />}
-        />
-
-        <Route
-          path="/settings"
-          element={<Placeholder title="Settings" />}
-        />
-
-        <Route
-          path="/login"
-          element={<Placeholder title="Login" />}
-        />
-      </Routes>
-    </BrowserRouter>
-  );
-}
+function useRemote(loader, initial) { const [data, setData] = useState(initial); const [loading, setLoading] = useState(true); const [error, setError] = useState(null); useEffect(() => { let mounted = true; loader().then((value) => mounted && setData(value)).catch((err) => mounted && setError(err.message)).finally(() => mounted && setLoading(false)); return () => { mounted = false; }; }, [loader]); return { data, loading, error }; }
+function Header() { return <header className="topbar"><div className="mobile-logo">SENTINEL AI</div><div className="system-pill"><i /> SYSTEM STATUS</div><div className="header-search"><Search size={16} /> Search alerts, events...</div><div className="header-tools"><Settings size={19} /><HelpCircle size={19} /><span className="notification"><Bell size={19} /><b /></span><div className="avatar">OP</div><ChevronDown size={15} /></div></header>; }
+function Sidebar() { return <aside className="sidebar"><div className="brand"><div className="brand-mark"><Shield size={22} /></div><div><strong>Sentinel AI</strong><small>Border Control Unit</small></div></div><nav>{nav.map(([label, path, Icon]) => <NavLink key={path} to={path} className={({ isActive }) => isActive ? "active" : ""}><Icon size={19} /><span>{label}</span></NavLink>)}</nav><div className="sidebar-foot"><NavLink to="/login"><LogOut size={19} /><span>Log Out</span></NavLink><small>Operator Profile</small></div></aside>; }
+function Shell({ children }) { return <div className="app-shell"><Sidebar /><div className="main"><Header />{children}</div></div>; }
+function PageHead({ eyebrow, title, sub, actions }) { return <div className="page-head"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1>{sub && <p>{sub}</p>}</div>{actions && <div className="page-actions">{actions}</div>}</div>; }
+function State({ loading, error, empty, children }) { if (loading) return <div className="state"><div className="spinner" /> Loading operational data...</div>; if (error) return <div className="state error-state"><AlertTriangle size={18} /> {error}</div>; if (empty) return <div className="state">{empty}</div>; return children; }
+function Stat({ label, value, detail, tone = "" }) { return <div className={`stat ${tone}`}><span>{label}</span><strong>{value ?? "-"}</strong>{detail && <small>{detail}</small>}</div>; }
+function CameraTile({ camera }) { const status = camera.status || (camera.is_active ? "online" : "offline"); return <div className="camera-tile"><div className="camera-feed"><div className="feed-top"><b>{camera.camera_code}</b><span className={status === "online" ? "live" : "down"}>{status.toUpperCase()}</span></div><div className="feed-bottom"><span>{camera.sector}</span><time>{camera.name}</time></div></div><div className="tile-meta"><div><b>{camera.name}</b><small>{camera.stream_url || "No stream source configured"}</small></div><span className={status}>{status}</span></div></div>; }
+function Dashboard() { const cameras = useRemote(getCameras, []); const alerts = useRemote(getAlerts, []); const analytics = useRemote(getAnalytics, null); return <Shell><main className="content"><PageHead eyebrow="Monitoring Overview" title="Border Surveillance" sub="Real-time intelligence from configured surveillance sources." /><State loading={cameras.loading || alerts.loading || analytics.loading} error={cameras.error || alerts.error || analytics.error} empty={null}><div className="stats"><Stat label="ACTIVE CAMERAS" value={cameras.data.filter((c) => c.is_active).length} /><Stat label="ACTIVE ALERTS" value={analytics.data?.active_alerts} tone="critical" /><Stat label="PEOPLE DETECTED" value="-" detail="No current data" /><Stat label="VEHICLES" value="-" detail="No current data" /><Stat label="SYSTEM HEALTH" value="-" detail="Unavailable" /></div><div className="dashboard-grid"><section><div className="section-title"><div><h2>Live Surveillance</h2><small>Configured camera sources</small></div><span className="tag blue">{cameras.data.length} SOURCES</span></div><State loading={false} error={null} empty={cameras.data.length ? null : "No cameras configured. Add a camera source to begin surveillance."}><div className="camera-grid">{cameras.data.map((camera) => <CameraTile key={camera.id} camera={camera} />)}</div></State></section><section className="alert-panel"><div className="panel-title"><h2><AlertTriangle size={18} /> Active Alerts</h2><span className="tag salmon">{alerts.data.length}</span></div><State loading={false} error={null} empty={alerts.data.length ? null : "No active alerts"}>{alerts.data.slice(0, 4).map((alert) => <div className="alert-item" key={alert.id}><div className="alert-row"><b>{alert.severity}</b><time>{alert.timestamp || alert.created_at}</time></div><p>{alert.reason || alert.message}</p><code>{alert.zone || "Zone unavailable"}</code></div>)}</State></section></div></State></main></Shell>; }
+function Alerts() { const result = useRemote(getAlerts, []); return <Shell><main className="content"><PageHead eyebrow="Incident Response" title="Active Alerts" sub="Alerts returned by the surveillance backend." /><State {...result} empty="No active alerts"><div className="table-wrap"><table><thead><tr><th>ID</th><th>SEVERITY</th><th>EVENT</th><th>SOURCE</th><th>SCORE</th><th>TIMESTAMP</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>{result.data.map((alert) => <tr key={alert.id}><td>{alert.id}</td><td><span className={`severity ${alert.severity.toLowerCase()}`}>{alert.severity}</span></td><td><strong>{alert.reason || alert.message}</strong></td><td>{alert.camera_id ?? "Unavailable"}</td><td>{alert.score ?? "-"}</td><td>{alert.timestamp || alert.created_at}</td><td>{alert.status}</td><td><button className="icon-btn"><SlidersHorizontal size={15} /></button></td></tr>)}</tbody></table></div></State></main></Shell>; }
+function Cameras() { const result = useRemote(getCameras, []); return <Shell><main className="content"><PageHead eyebrow="Network Infrastructure" title="Border Cameras" sub="Manage configured network streams and detection endpoints." /><State {...result} empty="No cameras configured. Add a camera source to begin surveillance."><div className="stats four"><Stat label="TOTAL CAMERAS" value={result.data.length} /><Stat label="ONLINE" value={result.data.filter((c) => (c.status || (c.is_active ? "online" : "offline")) === "online").length} /><Stat label="OFFLINE / DEGRADED" value={result.data.filter((c) => !c.is_active).length} tone="critical" /><Stat label="AI ACTIVE NODES" value="-" detail="Unavailable" /></div><div className="table-wrap"><table><thead><tr><th>CAMERA ID</th><th>NAME / LOCATION</th><th>SECTOR</th><th>STATUS</th><th>SOURCE</th><th>DETECTION</th></tr></thead><tbody>{result.data.map((camera) => <tr key={camera.id}><td>{camera.camera_code}</td><td>{camera.name}</td><td>{camera.sector}</td><td>{camera.status || (camera.is_active ? "online" : "offline")}</td><td>{camera.stream_url || "Not configured"}</td><td><span className="tag blue">{camera.is_active ? "ENABLED" : "DISABLED"}</span></td></tr>)}</tbody></table></div></State></main></Shell>; }
+function Events() { const result = useRemote(getEvents, []); return <Shell><main className="content"><PageHead eyebrow="Historical Intelligence" title="Event Archive" sub="Recorded events returned by the surveillance backend." /><State {...result} empty="No events recorded"><div className="table-wrap"><table><thead><tr><th>EVENT ID</th><th>TYPE</th><th>CAMERA</th><th>SEVERITY</th><th>DESCRIPTION</th><th>TIMESTAMP</th></tr></thead><tbody>{result.data.map((event) => <tr key={event.id}><td>{event.id}</td><td>{event.event_type}</td><td>{event.camera_id}</td><td>{event.severity}</td><td>{event.description || "No description"}</td><td>{event.timestamp}</td></tr>)}</tbody></table></div></State></main></Shell>; }
+function Analytics() { const result = useRemote(getAnalytics, null); const detections = useRemote(getDetections, []); return <Shell><main className="content"><PageHead eyebrow="Operational Intelligence" title="Security Analytics" sub="Metrics calculated from stored detections, alerts, and events." /><State loading={result.loading || detections.loading} error={result.error || detections.error} empty={result.data ? null : "Analytics data unavailable"}><div className="stats four"><Stat label="TOTAL DETECTIONS" value={result.data.total_detections} /><Stat label="ACTIVE ALERTS" value={result.data.active_alerts} tone="critical" /><Stat label="CRITICAL ALERTS" value={result.data.critical_alerts} /><Stat label="TOTAL EVENTS" value={result.data.total_events} /></div><div className="chart-grid"><Chart title="Detection Trends" count={detections.data.length} /><Chart title="Alert Distribution" count={result.data.critical_alerts} /><Chart title="Stored Activity" count={result.data.total_events} /></div></State></main></Shell>; }
+function Chart({ title, count }) { return <section className="chart panel"><h2>{title}</h2>{count ? <div className="chart-value">{count}<small> records available</small></div> : <div className="chart-placeholder">No data available</div>}</section>; }
+function Monitoring() { const result = useRemote(getCameras, []); return <Shell><main className="content"><PageHead eyebrow="Live Monitoring" title="Camera Feed" sub="Select a configured camera to inspect its stream." /><State {...result} empty="No cameras configured. Add a video source before starting monitoring.">{result.data.length > 0 ? <div className="monitor-grid"><div className="big-feed"><div className="feed-top"><b>{result.data[0].camera_code}</b><span className="live">{result.data[0].status || "READY"}</span></div><div className="feed-bottom"><span>{result.data[0].stream_url || "No stream source configured"}</span></div></div><div className="panel"><h2>Stream Telemetry</h2><p className="state">Detection overlay data appears when processing is started.</p></div></div> : null}</State></main></Shell>; }
+function BorderMap() { const result = useRemote(getCameras, []); const mapped = result.data.filter((camera) => camera.location_lat != null && camera.location_lng != null); return <Shell><main className="content"><PageHead eyebrow="Geospatial Operations" title="Border Map" sub="Configured camera positions and restricted zones." /><State {...result} empty={mapped.length ? null : "Map data unavailable. Configure camera coordinates to display operational positions."}><div className="map-canvas">{mapped.map((camera, index) => <div className={`sensor map-sensor-${index}`} key={camera.id}>●<small>{camera.camera_code}</small></div>)}<div className="map-legend"><b>Map Legend</b><span>● Configured Camera</span></div></div></State></main></Shell>; }
+function SettingsPage() { return <Shell><main className="content"><PageHead eyebrow="System Administration" title="Configuration" sub="Local controls for detection sensitivity. These settings are UI-only until persistence is implemented." /><div className="settings-layout"><div className="settings-nav"><b>Detection Thresholds</b><span>Alert Config</span><span>Restricted Zones</span><span>Notification Settings</span><span>Operator Access</span></div><div><section className="settings-card"><h2>AI Sensitivity Calibration</h2><p>Adjust the confidence thresholds for local operator review.</p><label>Human Detection Confidence<input type="range" /></label><label>Vehicle Identification<input type="range" /></label></section><section className="settings-card"><h2>Environmental Filters</h2><p>These controls are not persisted by the current backend.</p>{["Wildlife Suppression","Severe Weather Compensation","Night Vision Artifact Filtering"].map((name) => <div className="toggle-row" key={name}><span><b>{name}</b><small>UI-only configuration</small></span><i /></div>)}</section></div></div></main></Shell>; }
+function Login() { return <div className="login"><Shield size={42} /><h1>Sentinel AI</h1><p>Border Control Unit</p><NavLink className="primary" to="/dashboard">Enter Command Center</NavLink></div>; }
+export default function App() { return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/" element={<Dashboard />} /><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<Monitoring />} /><Route path="/alerts" element={<Alerts />} /><Route path="/events" element={<Events />} /><Route path="/cameras" element={<Cameras />} /><Route path="/border-map" element={<BorderMap />} /><Route path="/analytics" element={<Analytics />} /><Route path="/settings" element={<SettingsPage />} /><Route path="*" element={<Dashboard />} /></Routes></BrowserRouter>; }

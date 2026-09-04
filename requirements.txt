@@ -1,4 +1,8 @@
 fastapi
-uvicorn[standard]
-python-dotenv
+uvicorn
 sqlalchemy
+pydantic
+opencv-python
+ultralytics
+websockets
+python-dotenv

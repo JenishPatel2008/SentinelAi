@@ -62,6 +62,9 @@ class Camera(Base):
         nullable=False,
     )
 
+    source_type: Mapped[str] = mapped_column(String(20), default="video", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="offline", nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
@@ -127,6 +130,8 @@ class Event(Base):
         nullable=False,
     )
 
+    type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     severity: Mapped[str] = mapped_column(
         String(20),
         default="low",
@@ -187,3 +192,12 @@ class Alert(Base):
         DateTime,
         nullable=True,
     )
+
+    camera_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    track_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    object_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    zone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)

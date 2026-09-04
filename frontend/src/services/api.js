@@ -48,3 +48,27 @@ export function deleteCamera(id) {
     method: "DELETE",
   });
 }
+
+export function getAlerts() {
+  return request("/api/alerts");
+}
+
+export function getEvents() {
+  return request("/api/events");
+}
+
+export function getDetections() {
+  return request("/api/detections");
+}
+
+export function getAnalytics() {
+  return request("/api/analytics");
+}
+
+export function startStream(cameraId) {
+  return request("/api/streams/start", { method: "POST", body: JSON.stringify({ camera_id: cameraId }) });
+}
+
+export function stopStream(cameraId) {
+  return request("/api/streams/stop", { method: "POST", body: JSON.stringify({ camera_id: cameraId }) });
+}

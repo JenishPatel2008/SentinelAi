@@ -11,10 +11,24 @@ class CameraBase(BaseModel):
     location_lat: float | None = None
     location_lng: float | None = None
     is_active: bool = True
+    source_type: str = "video"
+    status: str = "offline"
 
 
 class CameraCreate(CameraBase):
     pass
+
+
+class CameraUpdate(BaseModel):
+    camera_code: str | None = None
+    name: str | None = None
+    sector: str | None = None
+    stream_url: str | None = None
+    location_lat: float | None = None
+    location_lng: float | None = None
+    is_active: bool | None = None
+    source_type: str | None = None
+    status: str | None = None
 
 
 class CameraResponse(CameraBase):
@@ -60,7 +74,26 @@ class AlertResponse(BaseModel):
     message: str
     created_at: datetime
     acknowledged_at: datetime | None
+    camera_id: int | None = None
+    track_id: int | None = None
+    object_type: str | None = None
+    zone: str | None = None
+    score: int | None = None
+    reason: str | None = None
+    evidence_path: str | None = None
+    timestamp: datetime | None = None
 
     model_config = ConfigDict(
         from_attributes=True
     )
+
+
+class StreamRequest(BaseModel):
+    camera_id: int
+
+
+class AnalyticsResponse(BaseModel):
+    total_detections: int
+    active_alerts: int
+    critical_alerts: int
+    total_events: int

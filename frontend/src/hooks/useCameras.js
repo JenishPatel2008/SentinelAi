@@ -13,7 +13,7 @@ export default function useCameras() {
 
       const data = await getCameras();
 
-      setCameras(data);
+      setCameras(Array.isArray(data) ? data : data.cameras || []);
     } catch (err) {
       console.error("Failed to load cameras:", err);
       setError(err.message || "Failed to load cameras");

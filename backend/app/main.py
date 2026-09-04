@@ -1,10 +1,19 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from .database.database import Base, engine
+from .database.database import Base, engine, ensure_compatibility_columns
 from .database import models
 from .api.cameras import router as cameras_router
+from .api.alerts import router as alerts_router
+from .api.events import router as events_router
+from .api.detections import router as detections_router
+from .api.analytics import router as analytics_router
+from .api.streams import router as streams_router
+from .api.websocket import router as websocket_router
 
 
 load_dotenv()
@@ -41,6 +50,8 @@ app.add_middleware(
 # ---------------------------------------------------------
 
 Base.metadata.create_all(bind=engine)
+ensure_compatibility_columns()
+Path("data/evidence").mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------
@@ -48,6 +59,14 @@ Base.metadata.create_all(bind=engine)
 # ---------------------------------------------------------
 
 app.include_router(cameras_router)
+app.include_router(cameras_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
+app.include_router(events_router, prefix="/api")
+app.include_router(detections_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
+app.include_router(streams_router, prefix="/api")
+app.include_router(websocket_router)
+app.mount("/evidence", StaticFiles(directory="data/evidence"), name="evidence")
 
 
 # ---------------------------------------------------------

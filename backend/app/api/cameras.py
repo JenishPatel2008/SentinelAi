@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 
 from ..database.database import get_db
 from ..database.models import Camera
-from ..database.schemas import CameraCreate, CameraResponse
+from ..database.schemas import CameraCreate, CameraResponse, CameraUpdate
 from ..services.camera_service import (
     create_camera,
     delete_camera,
     get_camera,
     get_cameras,
+    update_camera,
 )
 
 
@@ -90,3 +91,11 @@ def remove_camera(
         "message": "Camera deleted successfully",
         "camera_id": camera_id,
     }
+
+
+@router.put("/{camera_id}", response_model=CameraResponse)
+def edit_camera(camera_id: int, camera_data: CameraUpdate, db: Session = Depends(get_db)):
+    camera = update_camera(db, camera_id, camera_data.model_dump(exclude_unset=True))
+    if camera is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return camera

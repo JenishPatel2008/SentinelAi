@@ -35,6 +35,8 @@ def create_camera(
         location_lat=camera_data.location_lat,
         location_lng=camera_data.location_lng,
         is_active=camera_data.is_active,
+        source_type=camera_data.source_type,
+        status=camera_data.status,
     )
 
     db.add(camera)
@@ -57,3 +59,15 @@ def delete_camera(
     db.commit()
 
     return True
+
+
+def update_camera(db: Session, camera_id: int, values: dict) -> Camera | None:
+    camera = get_camera(db, camera_id)
+    if camera is None:
+        return None
+    for key, value in values.items():
+        if value is not None:
+            setattr(camera, key, value)
+    db.commit()
+    db.refresh(camera)
+    return camera
