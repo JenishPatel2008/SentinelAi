@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..database.models import Alert, Event
 from ..api.websocket import manager
 
-EVIDENCE_DIR = Path("data/evidence")
+EVIDENCE_DIR = Path(__file__).resolve().parents[3] / "data" / "evidence"
 
 def create_alert(db: Session, camera_id: int, track_id: int, object_type: str, confidence: float, zone: str, threat: dict, frame=None, zone_type=None):
     """Persist one alert and optional annotated evidence frame."""

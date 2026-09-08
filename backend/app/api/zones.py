@@ -8,8 +8,16 @@ from ..database.schemas import ZoneCreate, ZoneResponse, ZoneUpdate
 router = APIRouter(tags=["Zones"])
 
 def as_response(zone):
-    zone.polygon_points = json.loads(zone.polygon_points)
-    return zone
+    return {
+        "id": zone.id,
+        "camera_id": zone.camera_id,
+        "name": zone.name,
+        "zone_type": zone.zone_type,
+        "polygon_points": json.loads(zone.polygon_points),
+        "enabled": zone.enabled,
+        "created_at": zone.created_at,
+        "updated_at": zone.updated_at,
+    }
 
 @router.get("/api/cameras/{camera_id}/zones", response_model=list[ZoneResponse])
 def list_zones(camera_id: int, db: Session = Depends(get_db)):

@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+export const API_BASE_URL = "http://127.0.0.1:8000";
 
 async function request(endpoint, options = {}) {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -71,6 +71,10 @@ export function startStream(cameraId) {
 
 export function stopStream(cameraId) {
   return request("/api/streams/stop", { method: "POST", body: JSON.stringify({ camera_id: cameraId }) });
+}
+
+export function getStreamStatus(cameraId) {
+  return request(`/api/streams/${cameraId}/status`);
 }
 
 export function getZones(cameraId) { return request(`/api/cameras/${cameraId}/zones`); }

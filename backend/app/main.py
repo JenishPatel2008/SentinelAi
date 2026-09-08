@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from .database.database import Base, engine, ensure_compatibility_columns
+from .database.database import Base, engine, PROJECT_ROOT, ensure_compatibility_columns, reset_runtime_statuses
 from .database import models
 from .api.cameras import router as cameras_router
 from .api.alerts import router as alerts_router
@@ -52,7 +52,9 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 ensure_compatibility_columns()
-Path("data/evidence").mkdir(parents=True, exist_ok=True)
+reset_runtime_statuses()
+EVIDENCE_DIR = PROJECT_ROOT / "data" / "evidence"
+EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------
@@ -68,7 +70,7 @@ app.include_router(analytics_router, prefix="/api")
 app.include_router(streams_router, prefix="/api")
 app.include_router(websocket_router)
 app.include_router(zones_router)
-app.mount("/evidence", StaticFiles(directory="data/evidence"), name="evidence")
+app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 
 # ---------------------------------------------------------

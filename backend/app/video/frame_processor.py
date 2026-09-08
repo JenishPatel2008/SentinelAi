@@ -7,12 +7,17 @@ from ..ai.zone_detector import annotate_zones
 from ..database.models import Detection
 from ..database.models import Zone
 from ..services.alert_service import create_alert
+from ..database.database import PROJECT_ROOT
 
-def process_video(camera, db: Session, model_path="ai_models/yolo/model.pt", confidence=.45, max_frames=None):
+def process_video(camera, db: Session, model_path=None, confidence=.45, max_frames=None):
     """Run a finite MP4 through detection; returns a summary and stops at EOF."""
     if not camera.stream_url:
         raise ValueError("Camera has no video source configured")
-    capture = cv2.VideoCapture(camera.stream_url)
+    source = camera.stream_url
+    if "://" not in source and not source.startswith("/"):
+        source = str(PROJECT_ROOT / source)
+    model_path = model_path or str(PROJECT_ROOT / "ai_models" / "yolo" / "model.pt")
+    capture = cv2.VideoCapture(source)
     if not capture.isOpened():
         raise ValueError(f"Unable to open video source: {camera.stream_url}")
     zones = [
