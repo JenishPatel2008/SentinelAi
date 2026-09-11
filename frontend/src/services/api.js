@@ -80,6 +80,17 @@ export function getAlerts() {
   return request("/api/alerts");
 }
 
+export function getAlert(id) {
+  return request(`/api/alerts/${id}`);
+}
+
+export function decideAlert(id, decision) {
+  return request(`/api/alerts/${id}/decision`, {
+    method: "PATCH",
+    body: JSON.stringify({ decision }),
+  });
+}
+
 export function getEvents() {
   return request("/api/events");
 }

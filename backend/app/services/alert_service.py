@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import cv2
 from sqlalchemy.orm import Session
-from ..database.models import Alert, Event
+from ..database.models import Alert, Camera, Event
 from ..api.websocket import manager
 
 EVIDENCE_DIR = Path(__file__).resolve().parents[3] / "data" / "evidence"
@@ -23,6 +23,7 @@ def create_alert(db: Session, camera_id: int, track_id: int, object_type: str, c
     db.add(alert)
     db.commit()
     db.refresh(alert)
+    camera = db.get(Camera, camera_id)
     manager.broadcast_from_sync({
         "type": "alert",
         "data": {
@@ -30,6 +31,9 @@ def create_alert(db: Session, camera_id: int, track_id: int, object_type: str, c
             "object_type": object_type, "zone": zone, "zone_type": zone_type,
             "score": threat["score"], "severity": threat["severity"],
             "reason": threat["reason"], "status": alert.status,
+            "alert_name": threat["reason"], "confidence": confidence,
+            "camera_name": camera.name if camera else f"Camera {camera_id}",
+            "camera_code": camera.camera_code if camera else None,
             "evidence_path": evidence_path,
             "timestamp": now.isoformat(),
         },
