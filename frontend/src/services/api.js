@@ -1,31 +1,46 @@
 export const API_BASE_URL = "http://127.0.0.1:8000";
+const REQUEST_TIMEOUT_MS = 15000;
 
 async function request(endpoint, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
 
-    try {
-      const data = await response.json();
+    if (!response.ok) {
+      let message = `Request failed with status ${response.status}`;
 
-      if (data.detail) {
-        message = data.detail;
+      try {
+        const data = await response.json();
+
+        if (data.detail) {
+          message = data.detail;
+        }
+      } catch {
+        // Response wasn't JSON.
       }
-    } catch {
-      // Response wasn't JSON.
+
+      throw new Error(message);
     }
 
-    throw new Error(message);
-  }
+    return response.json();
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timed out while contacting ${endpoint}.`, { cause: error });
+    }
 
-  return response.json();
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function getCameras() {
@@ -47,6 +62,18 @@ export function deleteCamera(id) {
   return request(`/api/cameras/${id}`, {
     method: "DELETE",
   });
+}
+
+export async function uploadVideo(file) {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`${API_BASE_URL}/api/cameras/upload-video`, { method: "POST", body });
+  if (!response.ok) {
+    let message = `Video upload failed with status ${response.status}`;
+    try { const data = await response.json(); if (data.detail) message = data.detail; } catch { /* Preserve the HTTP error when the response is not JSON. */ }
+    throw new Error(message);
+  }
+  return response.json();
 }
 
 export function getAlerts() {

@@ -1,7 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+import re
+import shutil
+import uuid
+
+import cv2
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from ..database.database import get_db
+from ..database.database import PROJECT_ROOT, get_db
 from ..database.models import Camera
 from ..database.schemas import CameraCreate, CameraResponse, CameraUpdate
 from ..services.camera_service import (
@@ -17,6 +23,44 @@ router = APIRouter(
     prefix="/cameras",
     tags=["Cameras"],
 )
+
+VIDEO_DIR = PROJECT_ROOT / "data" / "videos"
+
+
+@router.post("/upload-video")
+async def upload_video(file: UploadFile = File(...)):
+    """Store and validate an uploaded MP4 as a project-relative camera source."""
+    filename = Path(file.filename or "")
+    if filename.suffix.lower() != ".mp4":
+        raise HTTPException(status_code=415, detail="Only .mp4 video files are supported")
+
+    safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", filename.stem).strip("._") or "camera_video"
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    target = VIDEO_DIR / f"{safe_stem}.mp4"
+    if target.exists():
+        target = VIDEO_DIR / f"{safe_stem}_{uuid.uuid4().hex[:8]}.mp4"
+
+    try:
+        with target.open("wb") as output:
+            shutil.copyfileobj(file.file, output)
+        if target.stat().st_size == 0:
+            raise ValueError("The uploaded video is empty")
+
+        capture = cv2.VideoCapture(str(target))
+        valid = capture.isOpened() and capture.get(cv2.CAP_PROP_FRAME_COUNT) > 0
+        capture.release()
+        if not valid:
+            raise ValueError("OpenCV could not open the uploaded MP4")
+    except ValueError as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Unable to store the uploaded video") from exc
+    finally:
+        await file.close()
+
+    return {"filename": target.name, "stream_url": f"data/videos/{target.name}", "source_type": "video"}
 
 
 @router.get(
