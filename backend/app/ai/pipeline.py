@@ -4,8 +4,8 @@ from .zone_detector import zones_for_frame, point_in_zone
 from .threat_engine import calculate_threat
 
 class DetectionPipeline:
-    def __init__(self, model_path="ai_models/yolo/model.pt", confidence=.45, zones=None, persistence_frames=5):
-        self.detector = YOLODetector(model_path, confidence)
+    def __init__(self, model_path="ai_models/yolo/model.pt", confidence=.45, zones=None, persistence_frames=5, class_confidences=None):
+        self.detector = YOLODetector(model_path, confidence, class_confidences=class_confidences)
         self.tracker = CentroidTracker()
         self.zones = zones or []
         self.persistence_frames = persistence_frames

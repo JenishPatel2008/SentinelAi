@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -15,6 +15,9 @@ from .api.analytics import router as analytics_router
 from .api.streams import router as streams_router
 from .api.websocket import router as websocket_router
 from .api.zones import router as zones_router
+from .api.auth import router as auth_router
+from .api.settings import router as settings_router
+from .core.security import get_current_operator, get_stream_operator
 
 
 load_dotenv()
@@ -61,15 +64,17 @@ EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
 # API Routers
 # ---------------------------------------------------------
 
-app.include_router(cameras_router)
-app.include_router(cameras_router, prefix="/api")
-app.include_router(alerts_router, prefix="/api")
-app.include_router(events_router, prefix="/api")
-app.include_router(detections_router, prefix="/api")
-app.include_router(analytics_router, prefix="/api")
-app.include_router(streams_router, prefix="/api")
+app.include_router(cameras_router, dependencies=[Depends(get_current_operator)])
+app.include_router(auth_router, prefix="/api")
+app.include_router(cameras_router, prefix="/api", dependencies=[Depends(get_current_operator)])
+app.include_router(alerts_router, prefix="/api", dependencies=[Depends(get_current_operator)])
+app.include_router(events_router, prefix="/api", dependencies=[Depends(get_current_operator)])
+app.include_router(detections_router, prefix="/api", dependencies=[Depends(get_current_operator)])
+app.include_router(analytics_router, prefix="/api", dependencies=[Depends(get_current_operator)])
+app.include_router(streams_router, prefix="/api", dependencies=[Depends(get_stream_operator)])
 app.include_router(websocket_router)
-app.include_router(zones_router)
+app.include_router(zones_router, dependencies=[Depends(get_current_operator)])
+app.include_router(settings_router, prefix="/api")
 app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 

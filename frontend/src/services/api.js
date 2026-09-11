@@ -1,16 +1,30 @@
 export const API_BASE_URL = "http://127.0.0.1:8000";
+export const AUTH_TOKEN_KEY = "sentinel.operator.token";
 const REQUEST_TIMEOUT_MS = 15000;
+
+export function getAuthToken() {
+  return typeof window === "undefined" ? null : window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function getStreamPreviewUrl(cameraId, attempt = 0) {
+  const token = getAuthToken();
+  const query = new URLSearchParams({ attempt: String(attempt) });
+  if (token) query.set("token", token);
+  return `${API_BASE_URL}/api/streams/${cameraId}/mjpeg?${query.toString()}`;
+}
 
 async function request(endpoint, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
+    const token = getAuthToken();
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
     });
@@ -64,10 +78,15 @@ export function deleteCamera(id) {
   });
 }
 
+export function updateCamera(id, camera) {
+  return request(`/api/cameras/${id}`, { method: "PUT", body: JSON.stringify(camera) });
+}
+
 export async function uploadVideo(file) {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/api/cameras/upload-video`, { method: "POST", body });
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE_URL}/api/cameras/upload-video`, { method: "POST", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!response.ok) {
     let message = `Video upload failed with status ${response.status}`;
     try { const data = await response.json(); if (data.detail) message = data.detail; } catch { /* Preserve the HTTP error when the response is not JSON. */ }
@@ -76,8 +95,8 @@ export async function uploadVideo(file) {
   return response.json();
 }
 
-export function getAlerts() {
-  return request("/api/alerts");
+export function getAlerts(status = "active") {
+  return request(`/api/alerts?status=${encodeURIComponent(status)}`);
 }
 
 export function getAlert(id) {
@@ -101,6 +120,44 @@ export function getDetections() {
 
 export function getAnalytics() {
   return request("/api/analytics");
+}
+
+export function getHealth() {
+  return request("/health");
+}
+
+export function getSettings() {
+  return request("/api/settings");
+}
+
+export function updateSettings(settings) {
+  return request("/api/settings", { method: "PATCH", body: JSON.stringify(settings) });
+}
+
+export async function getCamerasWithStatuses() {
+  const cameras = await getCameras();
+  return Promise.all(cameras.map(async (camera) => {
+    try {
+      const stream = await getStreamStatus(camera.id);
+      return { ...camera, status: stream.status, stream_status: stream };
+    } catch {
+      return camera;
+    }
+  }));
+}
+
+export async function loginOperator(username, password) {
+  const result = await request("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+  window.localStorage.setItem(AUTH_TOKEN_KEY, result.access_token);
+  return result;
+}
+
+export function getCurrentUser() {
+  return request("/api/auth/me");
+}
+
+export function logoutOperator() {
+  if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 export function startStream(cameraId) {

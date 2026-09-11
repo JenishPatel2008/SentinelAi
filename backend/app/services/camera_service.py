@@ -55,6 +55,9 @@ def delete_camera(
     if camera is None:
         return False
 
+    from ..video.stream_manager import stream_manager
+
+    stream_manager.stop(camera_id)
     db.delete(camera)
     db.commit()
 
@@ -65,6 +68,10 @@ def update_camera(db: Session, camera_id: int, values: dict) -> Camera | None:
     camera = get_camera(db, camera_id)
     if camera is None:
         return None
+    if values.get("is_active") is False or values.get("stream_url") not in (None, camera.stream_url):
+        from ..video.stream_manager import stream_manager
+
+        stream_manager.stop(camera_id)
     for key, value in values.items():
         if value is not None:
             setattr(camera, key, value)

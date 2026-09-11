@@ -26,6 +26,15 @@ npm run dev
 
 API docs: `http://127.0.0.1:8000/docs`. Frontend: `http://127.0.0.1:5173`.
 
+## Operator login
+
+The frontend now uses the backend operator session before opening protected views and API routes. The local development defaults are:
+
+- Username: `operator`
+- Password: `sentinel`
+
+Set `SENTINEL_OPERATOR_USERNAME`, `SENTINEL_OPERATOR_PASSWORD`, and `SENTINEL_AUTH_SECRET` before starting the backend to replace them.
+
 ## Demo data
 
 Place MP4 files under `data/videos/`. Register one with `POST /api/cameras`:
@@ -44,8 +53,8 @@ Place the trained model at `ai_models/yolo/model.pt`. Without it, the backend st
 
 ## API
 
-`/api/cameras`, `/api/alerts`, `/api/events`, `/api/detections`, `/api/analytics`, `/api/streams/start`, and `/api/streams/stop` are available, with `/ws` broadcasting new alerts. Evidence is served from `/evidence/{filename}`.
+`/api/auth/login`, `/api/auth/me`, `/api/cameras`, `/api/alerts`, `/api/events`, `/api/detections`, `/api/analytics`, `/api/settings`, `/api/streams/start`, and `/api/streams/stop` are available to an authenticated operator, with `/ws?token=...` broadcasting new alerts. Evidence is served from `/evidence/{filename}`.
 
 ## MVP limitations
 
-The tracker is a small IoU tracker for local demos. Webcam/RTSP, authentication, advanced GIS, model training, and production-grade streaming are deferred. Threat scores are deterministic demo rules, not validated security assessments.
+The tracker is a small IoU tracker for local demos. Advanced GIS, model training, and production-grade streaming are deferred. Threat scores are deterministic demo rules, not validated security assessments. Operator authentication is a local HMAC-signed session suitable for this MVP, not a complete enterprise identity system.

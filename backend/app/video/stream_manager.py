@@ -9,6 +9,7 @@ import cv2
 
 from ..ai.pipeline import DetectionPipeline
 from ..ai.zone_detector import annotate_zones, zones_for_frame
+from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
 from ..database.models import Camera, Detection, Zone
 from ..services.alert_service import create_alert
@@ -72,7 +73,14 @@ class StreamManager:
 
             self._set_camera_status(db, camera_id, "starting")
             zones = [{"id": zone.id, "name": zone.name, "zone_type": zone.zone_type, "polygon_points": json.loads(zone.polygon_points), "enabled": zone.enabled} for zone in db.query(Zone).filter(Zone.camera_id == camera_id, Zone.enabled.is_(True)).all()]
-            pipeline = DetectionPipeline(str(PROJECT_ROOT / "ai_models" / "yolo" / "model.pt"), .45, zones)
+            settings = get_runtime_settings()
+            vehicle_classes = {"car", "truck", "motorcycle", "bus", "bicycle"}
+            pipeline = DetectionPipeline(
+                str(PROJECT_ROOT / "ai_models" / "yolo" / "model.pt"),
+                min(settings["detection_confidence"], settings["vehicle_confidence"]),
+                zones,
+                class_confidences={"person": settings["detection_confidence"], **{item: settings["vehicle_confidence"] for item in vehicle_classes}},
+            )
             state["status"] = "online"
             self._set_camera_status(db, camera_id, "online")
             alerted_tracks = set()

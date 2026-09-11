@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -15,8 +15,11 @@ class AlertDecision(BaseModel):
     decision: Literal["confirmed", "declined"]
 
 @router.get("", response_model=list[AlertResponse])
-def list_alerts(db: Session = Depends(get_db)):
-    return db.query(Alert).order_by(Alert.created_at.desc()).limit(200).all()
+def list_alerts(status_filter: Literal["active", "confirmed", "declined", "all"] = Query("active", alias="status"), db: Session = Depends(get_db)):
+    query = db.query(Alert)
+    if status_filter != "all":
+        query = query.filter(Alert.status == status_filter)
+    return query.order_by(Alert.created_at.desc()).limit(200).all()
 
 @router.get("/{alert_id}", response_model=AlertResponse)
 def read_alert(alert_id: int, db: Session = Depends(get_db)):

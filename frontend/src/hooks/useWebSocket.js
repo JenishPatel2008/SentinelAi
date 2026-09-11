@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { getAuthToken } from "../services/api";
 
-export default function useWebSocket(url = "ws://127.0.0.1:8000/ws") {
+export default function useWebSocket() {
   const [message, setMessage] = useState(null);
   const [connected, setConnected] = useState(false);
   const reconnectTimer = useRef(null);
@@ -9,6 +10,8 @@ export default function useWebSocket(url = "ws://127.0.0.1:8000/ws") {
     let disposed = false;
     let socket;
     const connect = () => {
+      const token = getAuthToken();
+      const url = `ws://127.0.0.1:8000/ws?token=${encodeURIComponent(token || "")}`;
       socket = new WebSocket(url);
       socket.onopen = () => { if (!disposed) setConnected(true); };
       socket.onmessage = (event) => { try { setMessage(JSON.parse(event.data)); } catch { /* Ignore malformed messages. */ } };
@@ -21,7 +24,7 @@ export default function useWebSocket(url = "ws://127.0.0.1:8000/ws") {
     };
     connect();
     return () => { disposed = true; clearTimeout(reconnectTimer.current); socket?.close(); };
-  }, [url]);
+  }, []);
 
   return { message, connected };
 }

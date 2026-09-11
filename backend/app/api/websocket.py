@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from ..core.security import verify_access_token
 
 router = APIRouter(tags=["WebSocket"])
 
@@ -30,6 +31,9 @@ manager = ConnectionManager()
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    if verify_access_token(websocket.query_params.get("token")) is None:
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:
