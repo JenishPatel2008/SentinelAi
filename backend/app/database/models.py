@@ -110,6 +110,37 @@ class Detection(Base):
     )
 
 
+class PlateObservation(Base):
+    __tablename__ = "plate_observations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    camera_id: Mapped[int] = mapped_column(ForeignKey("cameras.id"), nullable=False, index=True)
+    track_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    vehicle_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    vehicle_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    plate_bbox: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plate_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    plate_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    detection_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    ocr_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    original_crop_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    processed_crop_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    watchlist_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class WatchlistEntry(Base):
+    __tablename__ = "watchlist"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    plate_number: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), default="HIGH", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -133,6 +164,9 @@ class Event(Base):
     severity: Mapped[str] = mapped_column(String(20), default="low", nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    plate_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    plate_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    watchlist_match: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Zone(Base):
@@ -198,3 +232,8 @@ class Alert(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    plate_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    plate_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    plate_observation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watchlist_match: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    watchlist_label: Mapped[str | None] = mapped_column(String(100), nullable=True)

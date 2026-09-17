@@ -17,6 +17,7 @@ from .api.websocket import router as websocket_router
 from .api.zones import router as zones_router
 from .api.auth import router as auth_router
 from .api.settings import router as settings_router
+from .api.anpr import router as anpr_router
 from .core.security import get_current_operator, get_stream_operator
 from .video.stream_manager import stream_manager
 
@@ -76,6 +77,7 @@ app.include_router(streams_router, prefix="/api", dependencies=[Depends(get_stre
 app.include_router(websocket_router)
 app.include_router(zones_router, dependencies=[Depends(get_current_operator)])
 app.include_router(settings_router, prefix="/api")
+app.include_router(anpr_router, dependencies=[Depends(get_current_operator)])
 app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
 
 

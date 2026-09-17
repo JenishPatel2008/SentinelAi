@@ -8,10 +8,13 @@ import time
 import cv2
 
 from ..ai.pipeline import DetectionPipeline
+from ..ai.anpr import ANPREngine
+from ..ai.threat_engine import calculate_threat
 from ..ai.zone_detector import annotate_zones, zones_for_frame
 from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
-from ..database.models import Camera, Detection, Zone
+from ..database.models import Camera, Detection, PlateObservation, WatchlistEntry, Zone
+from ..api.websocket import manager
 from ..services.alert_service import create_alert
 from ..utils.urls import validate_rtsp_url
 
@@ -124,6 +127,12 @@ class StreamManager:
                 zones,
                 class_confidences={"person": settings["detection_confidence"], **{item: settings["vehicle_confidence"] for item in vehicle_classes}},
             )
+            anpr = ANPREngine(
+                sample_interval=settings.get("anpr_frame_interval", 5),
+                min_confidence=settings.get("anpr_min_ocr_confidence", .55),
+            )
+            watchlist_entries = db.query(WatchlistEntry).filter(WatchlistEntry.enabled.is_(True)).all()
+            watchlist = {entry.plate_number: entry for entry in watchlist_entries}
             camera_status = "starting"
             self._set_camera_status(db, camera_id, camera_status)
             alerted_tracks = set()
@@ -155,11 +164,66 @@ class StreamManager:
 
                 tracks, threat = pipeline.process(frame)
                 state["frames_processed"] += 1
+                tracks, plate_observations = anpr.observe(
+                    frame,
+                    tracks,
+                    camera_id,
+                    frame_index=state["frames_processed"],
+                    timestamp=datetime.utcnow(),
+                    watchlist=watchlist,
+                ) if settings.get("anpr_enabled", True) else (tracks, [])
                 state["detections"] += len(tracks)
                 state["tracks"].update(track["track_id"] for track in tracks)
                 now = datetime.utcnow()
                 for track in tracks:
                     db.add(Detection(camera_id=camera_id, track_id=track["track_id"], object_type=track["class"], confidence=track["confidence"], timestamp=now))
+
+                observation_rows = {}
+                for observation in plate_observations:
+                    original_path = self._save_anpr_crop(observation["original_crop"], camera_id, observation["track_id"], "original", now)
+                    processed_path = self._save_anpr_crop(observation["processed_crop"], camera_id, observation["track_id"], "processed", now)
+                    row = PlateObservation(
+                        camera_id=camera_id,
+                        track_id=observation["track_id"],
+                        vehicle_type=observation["vehicle_type"],
+                        vehicle_confidence=observation["vehicle_confidence"],
+                        plate_bbox=json.dumps(observation["plate_bbox"]),
+                        plate_number=observation["plate_number"],
+                        plate_confidence=observation["plate_confidence"],
+                        detection_confidence=observation["detection_confidence"],
+                        ocr_confidence=observation["ocr_confidence"],
+                        original_crop_path=original_path,
+                        processed_crop_path=processed_path,
+                        watchlist_id=observation["watchlist_id"],
+                        timestamp=observation["timestamp"],
+                    )
+                    db.add(row)
+                    db.flush()
+                    observation_rows[observation["track_id"]] = row
+                    manager.broadcast_from_sync({
+                        "type": "anpr",
+                        "data": {
+                            "camera_id": camera_id,
+                            "track_id": observation["track_id"],
+                            "vehicle_type": observation["vehicle_type"],
+                            "plate_number": observation["plate_number"],
+                            "plate_confidence": observation["plate_confidence"],
+                            "detection_confidence": observation["detection_confidence"],
+                            "ocr_confidence": observation["ocr_confidence"],
+                            "watchlist_match": observation["watchlist_match"],
+                            "watchlist_label": observation["watchlist_label"],
+                            "timestamp": observation["timestamp"].isoformat(),
+                        },
+                    })
+
+                threat = calculate_threat(
+                    tracks,
+                    plate_matches=[
+                        {"plate_number": track["plate_number"], "priority_score": 20}
+                        for track in tracks
+                        if track.get("intrusion") and track.get("watchlist_match")
+                    ],
+                )
 
                 display = annotate_zones(frame.copy(), zones_for_frame(zones, frame.shape[1], frame.shape[0]))
                 for track in tracks:
@@ -167,12 +231,36 @@ class StreamManager:
                     color = (0, 180, 255) if track.get("intrusion") else (80, 210, 120)
                     cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(display, f"{track['class']} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
+                    if track.get("plate_number") and track["plate_number"] != "UNKNOWN":
+                        cv2.putText(display, f"PLATE {track['plate_number']} {track['plate_confidence']:.0%}", (x1, min(display.shape[0] - 8, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, .48, color, 2)
+
+                for observation in plate_observations:
+                    px1, py1, px2, py2 = map(int, observation["plate_bbox"])
+                    cv2.rectangle(display, (px1, py1), (px2, py2), (255, 190, 60), 1)
 
                 intruder = next((track for track in tracks if track.get("intrusion")), None)
                 if intruder and intruder["track_id"] not in alerted_tracks:
                     alerted_tracks.add(intruder["track_id"])
                     zone = intruder["zone_matches"][0]
-                    create_alert(db, camera_id, intruder["track_id"], intruder["class"], intruder["confidence"], zone["name"], threat, display, zone["zone_type"])
+                    plate_row = observation_rows.get(intruder["track_id"])
+                    create_alert(
+                        db,
+                        camera_id,
+                        intruder["track_id"],
+                        intruder["class"],
+                        intruder["confidence"],
+                        zone["name"],
+                        threat,
+                        display,
+                        zone["zone_type"],
+                        {
+                            "plate_number": intruder.get("plate_number") if intruder.get("plate_number") != "UNKNOWN" else None,
+                            "plate_confidence": intruder.get("plate_confidence"),
+                            "plate_observation_id": plate_row.id if plate_row else None,
+                            "watchlist_match": intruder.get("watchlist_match", False),
+                            "watchlist_label": intruder.get("watchlist_label"),
+                        },
+                    )
                     state["alerts"] += 1
 
                 db.commit()
@@ -262,6 +350,17 @@ class StreamManager:
         if camera:
             camera.status = status
             db.commit()
+
+    @staticmethod
+    def _save_anpr_crop(crop, camera_id, track_id, kind, timestamp):
+        if crop is None or getattr(crop, "size", 0) == 0:
+            return None
+        target_dir = PROJECT_ROOT / "data" / "evidence" / "anpr"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"camera_{camera_id}_track_{track_id}_{kind}_{timestamp.strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+        if not cv2.imwrite(str(target), crop):
+            return None
+        return f"/evidence/anpr/{target.name}"
 
     def status(self, camera_id):
         with self.lock:

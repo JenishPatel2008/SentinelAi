@@ -14,6 +14,9 @@ class SettingsUpdate(BaseModel):
     wildlife_suppression: bool | None = None
     severe_weather_compensation: bool | None = None
     night_vision_filtering: bool | None = None
+    anpr_enabled: bool | None = None
+    anpr_frame_interval: int | None = Field(default=None, ge=1, le=60)
+    anpr_min_ocr_confidence: float | None = Field(default=None, ge=0.1, le=0.99)
 
 
 @router.get("", dependencies=[Depends(get_current_operator)])

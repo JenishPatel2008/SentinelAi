@@ -100,6 +100,93 @@ class DetectionResponse(BaseModel):
     )
 
 
+class PlateObservationResponse(BaseModel):
+    id: int
+    camera_id: int
+    camera_code: str | None = None
+    camera_name: str | None = None
+    track_id: int
+    vehicle_type: str
+    vehicle_confidence: float
+    plate_bbox: list[float] | None = None
+    plate_number: str
+    plate_confidence: float
+    detection_confidence: float
+    ocr_confidence: float
+    original_crop_path: str | None = None
+    processed_crop_path: str | None = None
+    watchlist_id: int | None = None
+    watchlist_label: str | None = None
+    timestamp: datetime
+
+
+class WatchlistBase(BaseModel):
+    plate_number: str = Field(min_length=6, max_length=20)
+    label: str = Field(min_length=1, max_length=100)
+    priority: str = Field(default="HIGH", min_length=1, max_length=20)
+    notes: str | None = None
+    enabled: bool = True
+
+    @field_validator("plate_number")
+    @classmethod
+    def normalized_watchlist_plate(cls, value):
+        from ..ai.ocr import is_plausible_plate, normalize_plate_text
+
+        normalized = normalize_plate_text(value)
+        if not is_plausible_plate(normalized):
+            raise ValueError("Plate number must use a supported registration format")
+        return normalized
+
+    @field_validator("priority")
+    @classmethod
+    def valid_priority(cls, value):
+        value = value.upper()
+        if value not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+            raise ValueError("Priority must be LOW, MEDIUM, HIGH, or CRITICAL")
+        return value
+
+
+class WatchlistCreate(WatchlistBase):
+    pass
+
+
+class WatchlistUpdate(BaseModel):
+    plate_number: str | None = Field(default=None, min_length=6, max_length=20)
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    priority: str | None = Field(default=None, min_length=1, max_length=20)
+    notes: str | None = None
+    enabled: bool | None = None
+
+    @field_validator("plate_number")
+    @classmethod
+    def normalized_update_plate(cls, value):
+        if value is None:
+            return value
+        from ..ai.ocr import is_plausible_plate, normalize_plate_text
+
+        normalized = normalize_plate_text(value)
+        if not is_plausible_plate(normalized):
+            raise ValueError("Plate number must use a supported registration format")
+        return normalized
+
+    @field_validator("priority")
+    @classmethod
+    def valid_update_priority(cls, value):
+        if value is None:
+            return value
+        value = value.upper()
+        if value not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+            raise ValueError("Priority must be LOW, MEDIUM, HIGH, or CRITICAL")
+        return value
+
+
+class WatchlistResponse(WatchlistBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class EventResponse(BaseModel):
     id: int
     camera_id: int
@@ -107,6 +194,9 @@ class EventResponse(BaseModel):
     severity: str
     description: str | None
     timestamp: datetime
+    plate_number: str | None = None
+    plate_confidence: float | None = None
+    watchlist_match: bool = False
 
     model_config = ConfigDict(
         from_attributes=True
@@ -130,6 +220,11 @@ class AlertResponse(BaseModel):
     reason: str | None = None
     evidence_path: str | None = None
     timestamp: datetime | None = None
+    plate_number: str | None = None
+    plate_confidence: float | None = None
+    plate_observation_id: int | None = None
+    watchlist_match: bool = False
+    watchlist_label: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True

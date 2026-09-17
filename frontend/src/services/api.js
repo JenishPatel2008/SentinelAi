@@ -125,6 +125,28 @@ export function getDetections() {
   return request("/api/detections");
 }
 
+export function getPlateHistory(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== "") params.set(key, value); });
+  return request(`/api/plates/history${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export function getWatchlist() {
+  return request("/api/watchlist");
+}
+
+export function createWatchlistEntry(entry) {
+  return request("/api/watchlist", { method: "POST", body: JSON.stringify(entry) });
+}
+
+export function updateWatchlistEntry(id, entry) {
+  return request(`/api/watchlist/${id}`, { method: "PUT", body: JSON.stringify(entry) });
+}
+
+export function deleteWatchlistEntry(id) {
+  return request(`/api/watchlist/${id}`, { method: "DELETE" });
+}
+
 export function getAnalytics() {
   return request("/api/analytics");
 }
