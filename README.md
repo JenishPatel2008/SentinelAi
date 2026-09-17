@@ -126,3 +126,13 @@ Vehicle classification reuses the class already emitted by the configured YOLO m
 The classifier keeps a short history per track and requires repeated observations before changing a confirmed class. Defaults are available through `/api/settings`: `vehicle_class_confidence_threshold=0.5`, `vehicle_class_history_size=5`, and `vehicle_class_change_confirmation_frames=3`. These values affect classification only and do not create a second detector or tracker.
 
 Vehicle class and confidence are returned by `/api/detections`, `/api/events`, `/api/alerts`, and `/api/analytics`, included in evidence-related alert metadata, sent in live scene WebSocket messages, and shown in Live Monitoring, Events, Alerts, and Analytics. Classification is contextual: zone, movement, night context, and the existing threat engine still determine security severity. Accuracy depends on the underlying YOLO model and camera quality.
+
+## Suspicious activity detection
+
+The shared camera worker now evaluates temporal behavior over persistent IoU track IDs. It does not use a second detector or infer intent. Supported explainable signals are `LOITERING`, `EXTENDED_RESTRICTED_PRESENCE`, `REPEATED_FENCE_CROSSING`, `PROLONGED_STATIONARY`, and conservative `PERSON_VEHICLE_PROXIMITY` when a person and a supported vehicle remain close for the configured duration.
+
+Defaults are available through `/api/settings`: loitering after 45 seconds with at most 80 pixels of accumulated movement, restricted-zone presence after 10 seconds, three zone-boundary interactions within 120 seconds, stationary behavior after 60 seconds, person-vehicle proximity within 100 pixels for 20 seconds, a 30-second behavior alert cooldown, and 180-second missing-track cleanup. Changes apply to newly started workers.
+
+Behavior alerts use the existing evidence snapshot, SQLite event/alert records, WebSocket `alert` messages, and operator confirm/decline flow. Confirming an alert uses the existing laptop alarm path; declining it does not play audio. The Alerts, Event Archive, Live Monitoring, and Analytics views show behavior type, state, reason, or duration where available.
+
+Behavior rules are conservative and camera-coordinate based. They do not claim identity, intent, group behavior, reliable direction-change semantics, or production security accuracy. A signal is only produced when the required track continuity and configured temporal thresholds are satisfied.

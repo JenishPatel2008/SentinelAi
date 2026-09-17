@@ -10,13 +10,14 @@ import cv2
 from ..ai.pipeline import DetectionPipeline
 from ..ai.anpr import ANPREngine
 from ..ai.night_detector import NightDetector
+from ..ai.behavior_engine import BehaviorEngine
 from ..ai.threat_engine import calculate_threat
 from ..ai.zone_detector import annotate_zones, zones_for_frame
 from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
 from ..database.models import Camera, Detection, PlateObservation, WatchlistEntry, Zone
 from ..api.websocket import manager
-from ..services.alert_service import create_alert, create_night_movement_event
+from ..services.alert_service import create_alert, create_behavior_alert, create_night_movement_event
 from ..utils.urls import validate_rtsp_url
 
 
@@ -75,7 +76,7 @@ class StreamManager:
             raise ValueError("Unable to find the configured video source.")
 
         self.stop(camera.id)
-        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0}
+        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0, "behavior_alerts": 0}
         thread = Thread(target=self._worker, args=(state, resolved_source, camera.source_type), daemon=True, name=f"sentinel-camera-{camera.id}")
         state["thread"] = thread
         with self.lock:
@@ -142,12 +143,25 @@ class StreamManager:
                 night_confirmation_frames=settings.get("night_confirmation_frames", 5),
                 day_confirmation_frames=settings.get("day_confirmation_frames", 5),
             )
+            behavior_engine = BehaviorEngine(
+                loitering_time_seconds=settings.get("loitering_time_seconds", 45),
+                loitering_movement_threshold=settings.get("loitering_movement_threshold", 80),
+                restricted_zone_dwell_seconds=settings.get("restricted_zone_dwell_seconds", 10),
+                fence_crossing_count_threshold=settings.get("fence_crossing_count_threshold", 3),
+                fence_crossing_window_seconds=settings.get("fence_crossing_window_seconds", 120),
+                stationary_time_seconds=settings.get("stationary_time_seconds", 60),
+                stationary_movement_threshold=settings.get("stationary_movement_threshold", 12),
+                proximity_threshold=settings.get("person_vehicle_proximity_threshold", 100),
+                proximity_time_seconds=settings.get("person_vehicle_proximity_seconds", 20),
+                track_cleanup_seconds=settings.get("behavior_track_cleanup_seconds", 180),
+            )
             watchlist_entries = db.query(WatchlistEntry).filter(WatchlistEntry.enabled.is_(True)).all()
             watchlist = {entry.plate_number: entry for entry in watchlist_entries}
             camera_status = "starting"
             self._set_camera_status(db, camera_id, camera_status)
             alerted_tracks = set()
             night_event_times = {}
+            behavior_alert_times = {}
             source_cycle = state["source_cycle"]
 
             while not state["stop"].is_set():
@@ -173,8 +187,10 @@ class StreamManager:
                     pipeline.reset()
                     anpr.reset()
                     night_detector.reset()
+                    behavior_engine.reset()
                     alerted_tracks.clear()
                     night_event_times.clear()
+                    behavior_alert_times.clear()
                     source_cycle = state["source_cycle"]
 
                 tracks, threat = pipeline.process(frame)
@@ -186,11 +202,6 @@ class StreamManager:
                     track["night_confidence"] = scene["night_confidence"]
                 night_movements = [track for track in tracks if scene["scene_condition"] in {"NIGHT", "LOW_LIGHT"} and track.get("moving")]
                 state["moving_tracks"] = len([track for track in tracks if track.get("moving")])
-                if state["frames_processed"] % 15 == 0:
-                    manager.broadcast_from_sync({
-                        "type": "scene",
-                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "tracks": [{"track_id": track["track_id"], "object_type": track["class"], "vehicle_class": track.get("vehicle_class"), "vehicle_class_confidence": track.get("vehicle_class_confidence"), "moving": track.get("moving", False)} for track in tracks], "timestamp": datetime.utcnow().isoformat()},
-                    })
                 tracks, plate_observations = anpr.observe(
                     frame,
                     tracks,
@@ -199,6 +210,12 @@ class StreamManager:
                     timestamp=datetime.utcnow(),
                     watchlist=watchlist,
                 ) if settings.get("anpr_enabled", True) else (tracks, [])
+                tracks, behavior_observations = behavior_engine.update(tracks, scene, timestamp=datetime.utcnow())
+                if state["frames_processed"] % 15 == 0:
+                    manager.broadcast_from_sync({
+                        "type": "scene",
+                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "tracks": [{"track_id": track["track_id"], "object_type": track["class"], "vehicle_class": track.get("vehicle_class"), "vehicle_class_confidence": track.get("vehicle_class_confidence"), "moving": track.get("moving", False), "behavior_state": track.get("behavior_state", "NORMAL"), "behavior_types": track.get("behavior_types", []), "dwell_seconds": track.get("dwell_seconds", 0), "stationary_seconds": track.get("stationary_seconds", 0)} for track in tracks], "timestamp": datetime.utcnow().isoformat()},
+                    })
                 state["detections"] += len(tracks)
                 state["tracks"].update(track["track_id"] for track in tracks)
                 now = datetime.utcnow()
@@ -251,6 +268,7 @@ class StreamManager:
                         if track.get("intrusion") and track.get("watchlist_match")
                     ],
                     night_movements=[track for track in night_movements if track.get("intrusion")],
+                    behaviors=behavior_observations,
                 )
 
                 display = annotate_zones(frame.copy(), zones_for_frame(zones, frame.shape[1], frame.shape[0]))
@@ -262,6 +280,8 @@ class StreamManager:
                     cv2.putText(display, f"{label} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
                     if track.get("moving"):
                         cv2.putText(display, "MOVING", (x1, min(display.shape[0] - 8, y2 + 36)), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1)
+                    if track.get("behavior_types"):
+                        cv2.putText(display, track["behavior_types"][0].replace("_", " "), (x1, min(display.shape[0] - 8, y2 + 52)), cv2.FONT_HERSHEY_SIMPLEX, .42, (0, 80, 255), 1)
                     if track.get("plate_number") and track["plate_number"] != "UNKNOWN":
                         cv2.putText(display, f"PLATE {track['plate_number']} {track['plate_confidence']:.0%}", (x1, min(display.shape[0] - 8, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, .48, color, 2)
 
@@ -300,8 +320,24 @@ class StreamManager:
                             "vehicle_class": intruder.get("vehicle_class"),
                             "vehicle_class_confidence": intruder.get("vehicle_class_confidence"),
                         },
+                        next((item for item in behavior_observations if item.get("track_id") == intruder["track_id"]), None),
                     )
                     state["alerts"] += 1
+
+                cooldown = settings.get("behavior_alert_cooldown_seconds", 30)
+                for behavior in behavior_observations:
+                    track = next((item for item in tracks if item.get("track_id") == behavior.get("track_id")), {})
+                    if track.get("intrusion"):
+                        # The intrusion alert already stores the behavior context for this frame.
+                        continue
+                    behavior_key = (behavior.get("track_id"), behavior.get("behavior_type"))
+                    current_time = time.monotonic()
+                    if current_time - behavior_alert_times.get(behavior_key, 0) < cooldown:
+                        continue
+                    behavior_alert_times[behavior_key] = current_time
+                    behavior_threat = calculate_threat([], behaviors=[behavior])
+                    create_behavior_alert(db, camera_id, track, behavior, behavior_threat, display)
+                    state["behavior_alerts"] += 1
 
                 cooldown = settings.get("night_alert_cooldown", 30)
                 for track in night_movements:
@@ -417,11 +453,11 @@ class StreamManager:
         with self.lock:
             state = self.streams.get(camera_id)
         if not state:
-            return {"camera_id": camera_id, "status": "offline", "frames_processed": 0, "detections": 0, "tracks": 0, "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0}
+            return {"camera_id": camera_id, "status": "offline", "frames_processed": 0, "detections": 0, "tracks": 0, "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0, "behavior_alerts": 0}
         status = state["status"]
         if status == "online" and state["last_frame_at"] and time.monotonic() - state["last_frame_at"] > 20:
             status = "stalled"
-        return {"camera_id": camera_id, "status": status, "error": state["error"] or ("No processed frame received recently" if status == "stalled" else None), "frames_processed": state["frames_processed"], "detections": state["detections"], "tracks": len(state["tracks"]), "alerts": state["alerts"], "scene": state["scene"], "moving_tracks": state["moving_tracks"], "night_events": state["night_events"]}
+        return {"camera_id": camera_id, "status": status, "error": state["error"] or ("No processed frame received recently" if status == "stalled" else None), "frames_processed": state["frames_processed"], "detections": state["detections"], "tracks": len(state["tracks"]), "alerts": state["alerts"], "scene": state["scene"], "moving_tracks": state["moving_tracks"], "night_events": state["night_events"], "behavior_alerts": state.get("behavior_alerts", 0)}
 
     def latest_frame(self, camera_id):
         with self.lock:

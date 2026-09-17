@@ -212,6 +212,10 @@ class EventResponse(BaseModel):
     evidence_path: str | None = None
     vehicle_class: str | None = None
     vehicle_class_confidence: float | None = None
+    behavior_type: str | None = None
+    behavior_state: str | None = None
+    behavior_reason: str | None = None
+    behavior_metadata: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -245,6 +249,11 @@ class AlertResponse(BaseModel):
     movement_distance: float | None = None
     vehicle_class: str | None = None
     vehicle_class_confidence: float | None = None
+    behavior_type: str | None = None
+    behavior_state: str | None = None
+    behavior_reason: str | None = None
+    behavior_metadata: str | None = None
+    behavior_duration_seconds: float | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -269,6 +278,13 @@ class AnalyticsResponse(BaseModel):
     trucks: int = 0
     bicycles: int = 0
     unknown_vehicles: int = 0
+    suspicious_activities: int = 0
+    loitering: int = 0
+    repeated_fence_crossings: int = 0
+    extended_restricted_presence: int = 0
+    prolonged_stationary: int = 0
+    person_vehicle_proximity: int = 0
+    night_suspicious_events: int = 0
 
 
 ZONE_TYPES = {"restricted", "high_security", "vehicle_restricted", "monitoring"}

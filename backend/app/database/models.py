@@ -182,6 +182,10 @@ class Event(Base):
     evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     vehicle_class: Mapped[str | None] = mapped_column(String(30), nullable=True)
     vehicle_class_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    behavior_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    behavior_state: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    behavior_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    behavior_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Zone(Base):
@@ -257,3 +261,8 @@ class Alert(Base):
     movement_distance: Mapped[float | None] = mapped_column(Float, nullable=True)
     vehicle_class: Mapped[str | None] = mapped_column(String(30), nullable=True)
     vehicle_class_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    behavior_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    behavior_state: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    behavior_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    behavior_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
+    behavior_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)

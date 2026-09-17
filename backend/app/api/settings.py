@@ -26,6 +26,17 @@ class SettingsUpdate(BaseModel):
     vehicle_class_confidence_threshold: float | None = Field(default=None, ge=0.1, le=0.99)
     vehicle_class_history_size: int | None = Field(default=None, ge=1, le=30)
     vehicle_class_change_confirmation_frames: int | None = Field(default=None, ge=1, le=30)
+    loitering_time_seconds: int | None = Field(default=None, ge=1, le=3600)
+    loitering_movement_threshold: float | None = Field(default=None, ge=0, le=10000)
+    restricted_zone_dwell_seconds: int | None = Field(default=None, ge=1, le=3600)
+    fence_crossing_count_threshold: int | None = Field(default=None, ge=2, le=50)
+    fence_crossing_window_seconds: int | None = Field(default=None, ge=1, le=3600)
+    stationary_time_seconds: int | None = Field(default=None, ge=1, le=3600)
+    stationary_movement_threshold: float | None = Field(default=None, ge=0, le=1000)
+    person_vehicle_proximity_threshold: float | None = Field(default=None, ge=1, le=2000)
+    person_vehicle_proximity_seconds: int | None = Field(default=None, ge=1, le=3600)
+    behavior_alert_cooldown_seconds: int | None = Field(default=None, ge=1, le=3600)
+    behavior_track_cleanup_seconds: int | None = Field(default=None, ge=1, le=3600)
 
 
 @router.get("", dependencies=[Depends(get_current_operator)])

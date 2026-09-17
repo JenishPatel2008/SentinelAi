@@ -20,6 +20,17 @@ DEFAULT_RUNTIME_SETTINGS = {
     "vehicle_class_confidence_threshold": 0.5,
     "vehicle_class_history_size": 5,
     "vehicle_class_change_confirmation_frames": 3,
+    "loitering_time_seconds": 45,
+    "loitering_movement_threshold": 80,
+    "restricted_zone_dwell_seconds": 10,
+    "fence_crossing_count_threshold": 3,
+    "fence_crossing_window_seconds": 120,
+    "stationary_time_seconds": 60,
+    "stationary_movement_threshold": 12,
+    "person_vehicle_proximity_threshold": 100,
+    "person_vehicle_proximity_seconds": 20,
+    "behavior_alert_cooldown_seconds": 30,
+    "behavior_track_cleanup_seconds": 180,
 }
 
 _settings = DEFAULT_RUNTIME_SETTINGS.copy()
