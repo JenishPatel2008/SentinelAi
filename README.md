@@ -118,3 +118,11 @@ Night detection runs inside the shared MP4/RTSP worker after YOLO tracking. It c
 Defaults are available through `/api/settings`: `night_brightness_threshold=60`, `low_light_brightness_threshold=100`, `night_confirmation_frames=5`, `day_confirmation_frames=5`, `movement_threshold=12`, and `night_alert_cooldown=30`. Safe-zone movement creates a rate-limited `night_movement` event. Restricted-zone night movement is passed to the existing threat engine and creates a `night_intrusion` alert with the normal evidence snapshot and explainable reason.
 
 The test video is not assumed to be nighttime. For deterministic tests, use darkened frames with the `NightDetector` unit tests. Actual accuracy depends on exposure, infrared illumination, image noise, weather, camera placement, and visibility; complete darkness cannot guarantee movement detection.
+
+## Explicit vehicle classification
+
+Vehicle classification reuses the class already emitted by the configured YOLO model after tracking. The verified COCO model currently supports these vehicle classes: `bicycle` (class ID 1), `car` (2), `motorcycle` (3), `bus` (5), and `truck` (7). It does not support `van` or a generic `other vehicle` class, so those labels are never fabricated; low-confidence results are reported as `unknown`.
+
+The classifier keeps a short history per track and requires repeated observations before changing a confirmed class. Defaults are available through `/api/settings`: `vehicle_class_confidence_threshold=0.5`, `vehicle_class_history_size=5`, and `vehicle_class_change_confirmation_frames=3`. These values affect classification only and do not create a second detector or tracker.
+
+Vehicle class and confidence are returned by `/api/detections`, `/api/events`, `/api/alerts`, and `/api/analytics`, included in evidence-related alert metadata, sent in live scene WebSocket messages, and shown in Live Monitoring, Events, Alerts, and Analytics. Classification is contextual: zone, movement, night context, and the existing threat engine still determine security severity. Accuracy depends on the underlying YOLO model and camera quality.

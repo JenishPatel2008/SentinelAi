@@ -23,6 +23,9 @@ class SettingsUpdate(BaseModel):
     day_confirmation_frames: int | None = Field(default=None, ge=1, le=120)
     movement_threshold: float | None = Field(default=None, ge=0, le=1000)
     night_alert_cooldown: int | None = Field(default=None, ge=1, le=3600)
+    vehicle_class_confidence_threshold: float | None = Field(default=None, ge=0.1, le=0.99)
+    vehicle_class_history_size: int | None = Field(default=None, ge=1, le=30)
+    vehicle_class_change_confirmation_frames: int | None = Field(default=None, ge=1, le=30)
 
 
 @router.get("", dependencies=[Depends(get_current_operator)])

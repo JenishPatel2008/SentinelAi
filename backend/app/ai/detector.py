@@ -35,5 +35,5 @@ class YOLODetector:
                 continue
             if object_class == "person" and not .15 <= width / max(height, 1) <= 1.25:
                 continue
-            detections.append({"class": object_class, "confidence": float(box.conf[0]), "bbox": coords})
+            detections.append({"class": object_class, "class_id": class_id, "confidence": float(box.conf[0]), "bbox": coords})
         return detections

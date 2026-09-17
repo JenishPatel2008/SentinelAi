@@ -1,6 +1,7 @@
 from backend.app.ai.threat_engine import calculate_threat
 from backend.app.ai.tracker import CentroidTracker
 from backend.app.ai.night_detector import NightDetector
+from backend.app.ai.vehicle_classifier import VehicleClassifier, supported_vehicle_classes
 from backend.app.ai.zone_detector import normalized_to_pixels, point_in_zone
 import numpy as np
 
@@ -46,6 +47,13 @@ def test_tracker_marks_displacement_as_movement():
     assert moved[0]["movement_distance"] == 10
 
 
+def test_tracker_keeps_vehicle_id_when_model_class_flickers():
+    tracker = CentroidTracker()
+    first = tracker.update([{"class": "car", "confidence": .8, "bbox": [10, 10, 30, 30]}])
+    second = tracker.update([{"class": "truck", "confidence": .6, "bbox": [11, 11, 31, 31]}])
+    assert first[0]["track_id"] == second[0]["track_id"]
+
+
 def test_night_intrusion_adds_explainable_context():
     result = calculate_threat(
         [{"class": "person", "intrusion": True}],
@@ -53,3 +61,26 @@ def test_night_intrusion_adds_explainable_context():
     )
     assert result["score"] == 65
     assert "Night-time movement" in result["reason"]
+
+
+def test_vehicle_classifier_uses_model_classes_and_stabilizes_changes():
+    assert supported_vehicle_classes({0: "person", 2: "car", 5: "bus", 7: "truck", 9: "van"}) == ["bus", "car", "truck"]
+    classifier = VehicleClassifier(confidence_threshold=.5, change_confirmation_frames=3)
+
+    def track(name, confidence):
+        return {"track_id": 17, "class": name, "confidence": confidence}
+
+    current = [track("car", .8)]
+    classifier.classify(current)
+    assert current[0]["vehicle_class"] == "car"
+    for _ in range(2):
+        current = [track("truck", .8)]
+        classifier.classify(current)
+        assert current[0]["vehicle_class"] == "car"
+    current = [track("truck", .8)]
+    classifier.classify(current)
+    assert current[0]["vehicle_class"] == "truck"
+
+    current = [track("bus", .3)]
+    classifier.classify(current)
+    assert current[0]["vehicle_class"] == "truck"

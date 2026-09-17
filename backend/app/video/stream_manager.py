@@ -128,6 +128,9 @@ class StreamManager:
                 zones,
                 class_confidences={"person": settings["detection_confidence"], **{item: settings["vehicle_confidence"] for item in vehicle_classes}},
                 movement_threshold=settings.get("movement_threshold", 12),
+                vehicle_class_confidence=settings.get("vehicle_class_confidence_threshold", .5),
+                vehicle_class_history_size=settings.get("vehicle_class_history_size", 5),
+                vehicle_class_change_confirmation_frames=settings.get("vehicle_class_change_confirmation_frames", 3),
             )
             anpr = ANPREngine(
                 sample_interval=settings.get("anpr_frame_interval", 5),
@@ -186,7 +189,7 @@ class StreamManager:
                 if state["frames_processed"] % 15 == 0:
                     manager.broadcast_from_sync({
                         "type": "scene",
-                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "timestamp": datetime.utcnow().isoformat()},
+                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "tracks": [{"track_id": track["track_id"], "object_type": track["class"], "vehicle_class": track.get("vehicle_class"), "vehicle_class_confidence": track.get("vehicle_class_confidence"), "moving": track.get("moving", False)} for track in tracks], "timestamp": datetime.utcnow().isoformat()},
                     })
                 tracks, plate_observations = anpr.observe(
                     frame,
@@ -200,7 +203,7 @@ class StreamManager:
                 state["tracks"].update(track["track_id"] for track in tracks)
                 now = datetime.utcnow()
                 for track in tracks:
-                    db.add(Detection(camera_id=camera_id, track_id=track["track_id"], object_type=track["class"], confidence=track["confidence"], timestamp=now))
+                    db.add(Detection(camera_id=camera_id, track_id=track["track_id"], class_id=track.get("class_id"), object_type=track["class"], confidence=track["confidence"], category=track.get("category"), vehicle_class=track.get("vehicle_class"), vehicle_class_confidence=track.get("vehicle_class_confidence"), timestamp=now))
 
                 observation_rows = {}
                 for observation in plate_observations:
@@ -255,7 +258,8 @@ class StreamManager:
                     x1, y1, x2, y2 = map(int, track["bbox"])
                     color = (0, 180, 255) if track.get("intrusion") else (80, 210, 120)
                     cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(display, f"{track['class']} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
+                    label = track.get("vehicle_class") if track.get("category") == "vehicle" else track["class"]
+                    cv2.putText(display, f"{label} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
                     if track.get("moving"):
                         cv2.putText(display, "MOVING", (x1, min(display.shape[0] - 8, y2 + 36)), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1)
                     if track.get("plate_number") and track["plate_number"] != "UNKNOWN":
@@ -291,6 +295,10 @@ class StreamManager:
                             "scene_condition": scene["scene_condition"] if intruder in night_movements else None,
                             "night_confidence": scene["night_confidence"] if intruder in night_movements else None,
                             "movement_distance": intruder.get("movement_distance") if intruder in night_movements else None,
+                        },
+                        {
+                            "vehicle_class": intruder.get("vehicle_class"),
+                            "vehicle_class_confidence": intruder.get("vehicle_class_confidence"),
                         },
                     )
                     state["alerts"] += 1

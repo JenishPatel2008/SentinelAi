@@ -17,6 +17,9 @@ DEFAULT_RUNTIME_SETTINGS = {
     "day_confirmation_frames": 5,
     "movement_threshold": 12,
     "night_alert_cooldown": 30,
+    "vehicle_class_confidence_threshold": 0.5,
+    "vehicle_class_history_size": 5,
+    "vehicle_class_change_confirmation_frames": 3,
 }
 
 _settings = DEFAULT_RUNTIME_SETTINGS.copy()

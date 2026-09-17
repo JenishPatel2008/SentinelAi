@@ -101,6 +101,7 @@ class Detection(Base):
         Integer,
         nullable=True,
     )
+    class_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     timestamp: Mapped[datetime] = mapped_column(
         DateTime,
@@ -108,6 +109,9 @@ class Detection(Base):
         nullable=False,
         index=True,
     )
+    category: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    vehicle_class: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    vehicle_class_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class PlateObservation(Base):
@@ -176,6 +180,8 @@ class Event(Base):
     movement_distance: Mapped[float | None] = mapped_column(Float, nullable=True)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    vehicle_class: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    vehicle_class_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Zone(Base):
@@ -249,3 +255,5 @@ class Alert(Base):
     scene_condition: Mapped[str | None] = mapped_column(String(20), nullable=True)
     night_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     movement_distance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vehicle_class: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    vehicle_class_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)

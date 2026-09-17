@@ -1,5 +1,7 @@
 from math import hypot
 
+VEHICLE_CLASSES = {"bicycle", "car", "motorcycle", "bus", "truck"}
+
 
 def _iou(a, b):
     x1, y1 = max(a[0], b[0]), max(a[1], b[1])
@@ -23,7 +25,8 @@ class CentroidTracker:
         for detection in detections:
             best_id, best_iou = None, 0
             for track_id, previous in self.tracks.items():
-                if track_id in used or previous["class"] != detection["class"]:
+                same_category = previous["class"] == detection["class"] or {previous["class"], detection["class"]}.issubset(VEHICLE_CLASSES)
+                if track_id in used or not same_category:
                     continue
                 overlap = _iou(previous["bbox"], detection["bbox"])
                 if overlap > best_iou:
