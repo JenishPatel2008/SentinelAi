@@ -9,13 +9,14 @@ import cv2
 
 from ..ai.pipeline import DetectionPipeline
 from ..ai.anpr import ANPREngine
+from ..ai.night_detector import NightDetector
 from ..ai.threat_engine import calculate_threat
 from ..ai.zone_detector import annotate_zones, zones_for_frame
 from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
 from ..database.models import Camera, Detection, PlateObservation, WatchlistEntry, Zone
 from ..api.websocket import manager
-from ..services.alert_service import create_alert
+from ..services.alert_service import create_alert, create_night_movement_event
 from ..utils.urls import validate_rtsp_url
 
 
@@ -74,7 +75,7 @@ class StreamManager:
             raise ValueError("Unable to find the configured video source.")
 
         self.stop(camera.id)
-        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0}
+        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0}
         thread = Thread(target=self._worker, args=(state, resolved_source, camera.source_type), daemon=True, name=f"sentinel-camera-{camera.id}")
         state["thread"] = thread
         with self.lock:
@@ -126,16 +127,24 @@ class StreamManager:
                 min(settings["detection_confidence"], settings["vehicle_confidence"]),
                 zones,
                 class_confidences={"person": settings["detection_confidence"], **{item: settings["vehicle_confidence"] for item in vehicle_classes}},
+                movement_threshold=settings.get("movement_threshold", 12),
             )
             anpr = ANPREngine(
                 sample_interval=settings.get("anpr_frame_interval", 5),
                 min_confidence=settings.get("anpr_min_ocr_confidence", .55),
+            )
+            night_detector = NightDetector(
+                night_threshold=settings.get("night_brightness_threshold", 60),
+                low_light_threshold=settings.get("low_light_brightness_threshold", 100),
+                night_confirmation_frames=settings.get("night_confirmation_frames", 5),
+                day_confirmation_frames=settings.get("day_confirmation_frames", 5),
             )
             watchlist_entries = db.query(WatchlistEntry).filter(WatchlistEntry.enabled.is_(True)).all()
             watchlist = {entry.plate_number: entry for entry in watchlist_entries}
             camera_status = "starting"
             self._set_camera_status(db, camera_id, camera_status)
             alerted_tracks = set()
+            night_event_times = {}
             source_cycle = state["source_cycle"]
 
             while not state["stop"].is_set():
@@ -159,11 +168,26 @@ class StreamManager:
 
                 if state["source_cycle"] != source_cycle:
                     pipeline.reset()
+                    anpr.reset()
+                    night_detector.reset()
                     alerted_tracks.clear()
+                    night_event_times.clear()
                     source_cycle = state["source_cycle"]
 
                 tracks, threat = pipeline.process(frame)
                 state["frames_processed"] += 1
+                scene = night_detector.analyze(frame)
+                state["scene"] = scene
+                for track in tracks:
+                    track["scene_condition"] = scene["scene_condition"]
+                    track["night_confidence"] = scene["night_confidence"]
+                night_movements = [track for track in tracks if scene["scene_condition"] in {"NIGHT", "LOW_LIGHT"} and track.get("moving")]
+                state["moving_tracks"] = len([track for track in tracks if track.get("moving")])
+                if state["frames_processed"] % 15 == 0:
+                    manager.broadcast_from_sync({
+                        "type": "scene",
+                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "timestamp": datetime.utcnow().isoformat()},
+                    })
                 tracks, plate_observations = anpr.observe(
                     frame,
                     tracks,
@@ -223,6 +247,7 @@ class StreamManager:
                         for track in tracks
                         if track.get("intrusion") and track.get("watchlist_match")
                     ],
+                    night_movements=[track for track in night_movements if track.get("intrusion")],
                 )
 
                 display = annotate_zones(frame.copy(), zones_for_frame(zones, frame.shape[1], frame.shape[0]))
@@ -231,6 +256,8 @@ class StreamManager:
                     color = (0, 180, 255) if track.get("intrusion") else (80, 210, 120)
                     cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(display, f"{track['class']} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
+                    if track.get("moving"):
+                        cv2.putText(display, "MOVING", (x1, min(display.shape[0] - 8, y2 + 36)), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1)
                     if track.get("plate_number") and track["plate_number"] != "UNKNOWN":
                         cv2.putText(display, f"PLATE {track['plate_number']} {track['plate_confidence']:.0%}", (x1, min(display.shape[0] - 8, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, .48, color, 2)
 
@@ -260,8 +287,24 @@ class StreamManager:
                             "watchlist_match": intruder.get("watchlist_match", False),
                             "watchlist_label": intruder.get("watchlist_label"),
                         },
+                        {
+                            "scene_condition": scene["scene_condition"] if intruder in night_movements else None,
+                            "night_confidence": scene["night_confidence"] if intruder in night_movements else None,
+                            "movement_distance": intruder.get("movement_distance") if intruder in night_movements else None,
+                        },
                     )
                     state["alerts"] += 1
+
+                cooldown = settings.get("night_alert_cooldown", 30)
+                for track in night_movements:
+                    if track.get("intrusion"):
+                        continue
+                    track_key = track["track_id"]
+                    if time.monotonic() - night_event_times.get(track_key, 0) < cooldown:
+                        continue
+                    night_event_times[track_key] = time.monotonic()
+                    create_night_movement_event(db, camera_id, track, scene, display)
+                    state["night_events"] += 1
 
                 db.commit()
                 ok, encoded = cv2.imencode(".jpg", display, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
@@ -366,11 +409,11 @@ class StreamManager:
         with self.lock:
             state = self.streams.get(camera_id)
         if not state:
-            return {"camera_id": camera_id, "status": "offline", "frames_processed": 0, "detections": 0, "tracks": 0, "alerts": 0}
+            return {"camera_id": camera_id, "status": "offline", "frames_processed": 0, "detections": 0, "tracks": 0, "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0}
         status = state["status"]
         if status == "online" and state["last_frame_at"] and time.monotonic() - state["last_frame_at"] > 20:
             status = "stalled"
-        return {"camera_id": camera_id, "status": status, "error": state["error"] or ("No processed frame received recently" if status == "stalled" else None), "frames_processed": state["frames_processed"], "detections": state["detections"], "tracks": len(state["tracks"]), "alerts": state["alerts"]}
+        return {"camera_id": camera_id, "status": status, "error": state["error"] or ("No processed frame received recently" if status == "stalled" else None), "frames_processed": state["frames_processed"], "detections": state["detections"], "tracks": len(state["tracks"]), "alerts": state["alerts"], "scene": state["scene"], "moving_tracks": state["moving_tracks"], "night_events": state["night_events"]}
 
     def latest_frame(self, camera_id):
         with self.lock:

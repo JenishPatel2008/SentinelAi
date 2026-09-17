@@ -14,4 +14,7 @@ def analytics(db: Session = Depends(get_db)):
         active_alerts=db.query(func.count(Alert.id)).filter(Alert.status == "active").scalar() or 0,
         critical_alerts=db.query(func.count(Alert.id)).filter(Alert.severity == "CRITICAL").scalar() or 0,
         total_events=db.query(func.count(Event.id)).scalar() or 0,
+        night_movements=db.query(func.count(Event.id)).filter(Event.event_type == "night_movement").scalar() or 0,
+        night_intrusions=db.query(func.count(Event.id)).filter(Event.event_type == "night_intrusion").scalar() or 0,
+        night_vehicle_movements=db.query(func.count(Event.id)).filter(Event.event_type == "night_movement", Event.object_type.in_({"car", "truck", "motorcycle", "bus", "bicycle"})).scalar() or 0,
     )

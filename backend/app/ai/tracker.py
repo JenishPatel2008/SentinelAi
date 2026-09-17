@@ -1,3 +1,6 @@
+from math import hypot
+
+
 def _iou(a, b):
     x1, y1 = max(a[0], b[0]), max(a[1], b[1])
     x2, y2 = min(a[2], b[2]), min(a[3], b[3])
@@ -8,9 +11,10 @@ def _iou(a, b):
 
 class CentroidTracker:
     """Small dependency-free tracker suitable for the local MVP."""
-    def __init__(self, iou_threshold=.25, max_missed=3):
+    def __init__(self, iou_threshold=.25, max_missed=3, movement_threshold=12):
         self.iou_threshold = iou_threshold
         self.max_missed = max_missed
+        self.movement_threshold = movement_threshold
         self.next_id = 1
         self.tracks = {}
 
@@ -29,7 +33,10 @@ class CentroidTracker:
                 self.next_id += 1
             x1, y1, x2, y2 = detection["bbox"]
             hits = self.tracks.get(track_id, {}).get("hits", 0) + 1
-            tracked = {**detection, "track_id": track_id, "center": ((x1+x2)/2, (y1+y2)/2), "hits": hits}
+            center = ((x1+x2)/2, (y1+y2)/2)
+            previous_center = self.tracks.get(track_id, {}).get("center", center)
+            movement_distance = hypot(center[0] - previous_center[0], center[1] - previous_center[1])
+            tracked = {**detection, "track_id": track_id, "center": center, "hits": hits, "movement_distance": round(movement_distance, 2), "moving": hits > 1 and movement_distance >= self.movement_threshold}
             self.tracks[track_id] = tracked
             used.add(track_id)
             updated.append(tracked)

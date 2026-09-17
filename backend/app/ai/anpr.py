@@ -1,5 +1,5 @@
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .ocr import OCRReader, is_plausible_plate, normalize_plate_text
 from .plate_detector import PlateDetector, VEHICLE_CLASSES
@@ -20,7 +20,7 @@ class ANPREngine:
         self._observations.clear()
 
     def observe(self, frame, tracks, camera_id, frame_index=0, timestamp=None, watchlist=None):
-        timestamp = timestamp or datetime.utcnow()
+        timestamp = timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
         watchlist = watchlist or {}
         observations = []
         enriched = []

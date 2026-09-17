@@ -1,7 +1,7 @@
 import re
+import os
 
 import cv2
-import numpy as np
 
 
 def normalize_plate_text(value):
@@ -41,6 +41,8 @@ class OCRReader:
         try:
             import pytesseract
 
+            if os.getenv("TESSERACT_CMD"):
+                pytesseract.pytesseract.tesseract_cmd = os.getenv("TESSERACT_CMD")
             pytesseract.get_tesseract_version()
             self._pytesseract = pytesseract
         except Exception as error:

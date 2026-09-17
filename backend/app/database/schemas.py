@@ -197,6 +197,15 @@ class EventResponse(BaseModel):
     plate_number: str | None = None
     plate_confidence: float | None = None
     watchlist_match: bool = False
+    track_id: int | None = None
+    object_type: str | None = None
+    zone: str | None = None
+    zone_type: str | None = None
+    scene_condition: str | None = None
+    night_confidence: float | None = None
+    movement_distance: float | None = None
+    duration_seconds: float | None = None
+    evidence_path: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -225,6 +234,9 @@ class AlertResponse(BaseModel):
     plate_observation_id: int | None = None
     watchlist_match: bool = False
     watchlist_label: str | None = None
+    scene_condition: str | None = None
+    night_confidence: float | None = None
+    movement_distance: float | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -239,6 +251,9 @@ class AnalyticsResponse(BaseModel):
     active_alerts: int
     critical_alerts: int
     total_events: int
+    night_movements: int = 0
+    night_intrusions: int = 0
+    night_vehicle_movements: int = 0
 
 
 ZONE_TYPES = {"restricted", "high_security", "vehicle_restricted", "monitoring"}

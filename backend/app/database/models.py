@@ -167,6 +167,15 @@ class Event(Base):
     plate_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     plate_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     watchlist_match: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    track_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    object_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    zone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    zone_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    scene_condition: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    night_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    movement_distance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class Zone(Base):
@@ -237,3 +246,6 @@ class Alert(Base):
     plate_observation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     watchlist_match: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     watchlist_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    scene_condition: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    night_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    movement_distance: Mapped[float | None] = mapped_column(Float, nullable=True)

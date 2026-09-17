@@ -17,6 +17,12 @@ class SettingsUpdate(BaseModel):
     anpr_enabled: bool | None = None
     anpr_frame_interval: int | None = Field(default=None, ge=1, le=60)
     anpr_min_ocr_confidence: float | None = Field(default=None, ge=0.1, le=0.99)
+    night_brightness_threshold: int | None = Field(default=None, ge=1, le=254)
+    low_light_brightness_threshold: int | None = Field(default=None, ge=1, le=254)
+    night_confirmation_frames: int | None = Field(default=None, ge=1, le=120)
+    day_confirmation_frames: int | None = Field(default=None, ge=1, le=120)
+    movement_threshold: float | None = Field(default=None, ge=0, le=1000)
+    night_alert_cooldown: int | None = Field(default=None, ge=1, le=3600)
 
 
 @router.get("", dependencies=[Depends(get_current_operator)])

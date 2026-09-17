@@ -79,8 +79,42 @@ RTSP connection failures are reported as offline and retried with backoff. Passw
 
 ## API
 
-`/api/auth/login`, `/api/auth/me`, `/api/cameras`, `/api/cameras/test-rtsp`, `/api/alerts`, `/api/events`, `/api/detections`, `/api/analytics`, `/api/settings`, `/api/streams/start`, and `/api/streams/stop` are available to an authenticated operator, with `/ws?token=...` broadcasting new alerts. Evidence is served from `/evidence/{filename}`.
+`/api/auth/login`, `/api/auth/me`, `/api/cameras`, `/api/cameras/test-rtsp`, `/api/alerts`, `/api/events`, `/api/detections`, `/api/analytics`, `/api/settings`, `/api/plates/history`, `/api/watchlist`, `/api/streams/start`, and `/api/streams/stop` are available to an authenticated operator, with `/ws?token=...` broadcasting new alerts and ANPR observations. Evidence is served from `/evidence/{filename}`.
 
 ## MVP limitations
 
 The tracker is a small IoU tracker for local demos. Advanced GIS, model training, and production-grade streaming are deferred. Threat scores are deterministic demo rules, not validated security assessments. Operator authentication is a local HMAC-signed session suitable for this MVP, not a complete enterprise identity system.
+## Automatic Number Plate Recognition (ANPR)
+
+ANPR is integrated into the shared MP4/RTSP worker after vehicle tracking. It samples tracked vehicle crops, detects plate candidates, preprocesses the crop, optionally runs Tesseract OCR, and aggregates valid results per track. Unreadable or unavailable OCR is recorded as `UNKNOWN`; the system never invents a plate number.
+
+### ANPR setup
+
+Install the Python dependencies from `requirements.txt`, then install the Tesseract executable separately and either add it to `PATH` or set `TESSERACT_CMD` to its full path. A dedicated one-class Ultralytics plate detector can be supplied with:
+
+```powershell
+$env:PLATE_MODEL_PATH = "ai_models/anpr/plate_model.pt"
+$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+```
+
+If `PLATE_MODEL_PATH` is absent, Sentinel uses a conservative OpenCV contour fallback to locate plate-shaped regions inside vehicle boxes. This fallback can store `UNKNOWN` observations, but reliable ANPR requires a suitable plate model and visible, sufficiently large plates.
+
+The sampling interval and OCR threshold are configurable through `/api/settings` as `anpr_frame_interval` and `anpr_min_ocr_confidence`. Plate observations are available at `GET /api/plates/history`; local watchlist entries are managed with `/api/watchlist`. Watchlist matches influence only intrusion threat scoring, not every vehicle detection.
+
+### ANPR demonstration
+
+1. Start the backend with `python -m uvicorn backend.app.main:app --reload` from the repository root.
+2. Start the frontend with `npm run dev` from `frontend`.
+3. Register `data/videos/test.mp4` as an MP4 camera and start it from Live Monitoring.
+4. Open Plate History to inspect actual observations and their evidence crops. `UNKNOWN` means the detector/OCR could not produce a sufficiently confident valid plate.
+5. To test a local watchlist, POST a synthetic registration such as `GJ01AB1234` to `/api/watchlist`; do not use real personal data.
+
+ANPR accuracy depends on camera resolution, distance, lighting, motion blur, plate angle, compression, and visibility. The feature does not claim perfect recognition.
+
+## Night-time movement detection
+
+Night detection runs inside the shared MP4/RTSP worker after YOLO tracking. It calculates grayscale mean brightness, classifies the scene as `DAY`, `LOW_LIGHT`, or `NIGHT`, and requires consecutive confirmation frames before changing state. Tracked-object center displacement determines `moving`; night movement is sampled without adding a second motion detector.
+
+Defaults are available through `/api/settings`: `night_brightness_threshold=60`, `low_light_brightness_threshold=100`, `night_confirmation_frames=5`, `day_confirmation_frames=5`, `movement_threshold=12`, and `night_alert_cooldown=30`. Safe-zone movement creates a rate-limited `night_movement` event. Restricted-zone night movement is passed to the existing threat engine and creates a `night_intrusion` alert with the normal evidence snapshot and explainable reason.
+
+The test video is not assumed to be nighttime. For deterministic tests, use darkened frames with the `NightDetector` unit tests. Actual accuracy depends on exposure, infrared illumination, image noise, weather, camera placement, and visibility; complete darkness cannot guarantee movement detection.
