@@ -152,12 +152,48 @@ function CameraTile({ camera }) { const status = cameraStatus(camera); return <d
 function AlertNotification() {
   const navigate = useNavigate();
   const { message } = useWebSocket();
-  const [dismissedId, setDismissedId] = useState(null);
-  const alert = message?.type === "alert" && message.data?.id !== dismissedId ? message.data : null;
+  const [alert, setAlert] = useState(null);
+  const dismissedIds = useRef(new Set());
+  const newestAlertId = useRef(0);
+
+  useEffect(() => {
+    if (message?.type !== "alert" || !message.data || dismissedIds.current.has(message.data.id)) return;
+    // WebSocket delivery is immediate; REST recovery handles alerts emitted during reconnects.
+    newestAlertId.current = Math.max(newestAlertId.current, Number(message.data.id) || 0);
+    setAlert(message.data);
+  }, [message]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function recoverActiveAlert() {
+      try {
+        const [activeAlerts, cameras] = await Promise.all([getAlerts("active"), getCameras()]);
+        if (disposed) return;
+        const cameraById = new Map(cameras.map((camera) => [camera.id, camera]));
+        const candidate = activeAlerts.find((item) => (Number(item.id) || 0) > newestAlertId.current && !dismissedIds.current.has(item.id));
+        if (candidate) {
+          const camera = cameraById.get(candidate.camera_id);
+          newestAlertId.current = Math.max(newestAlertId.current, Number(candidate.id) || 0);
+          setAlert({ ...candidate, camera_name: camera?.name, camera_code: camera?.camera_code });
+        }
+      } catch {
+        // WebSocket remains the primary notification path when REST recovery is unavailable.
+      }
+    }
+
+    recoverActiveAlert();
+    const timer = setInterval(recoverActiveAlert, 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, []);
 
   if (!alert) return null;
-  function openAlert() { setDismissedId(alert.id); navigate(`/alerts/${alert.id}`); }
-  return <aside className="intrusion-notification" role="alert" onClick={openAlert}><button className="notification-close" aria-label="Dismiss notification" onClick={(event) => { event.stopPropagation(); setDismissedId(alert.id); }}>x</button><div className="notification-kicker"><AlertTriangle size={16} /> INTRUSION DETECTED</div><h2>{alert.alert_name || alert.reason || "Restricted zone intrusion"}</h2><strong>{alert.camera_name || `Camera ${alert.camera_id}`}{alert.camera_code ? ` (${alert.camera_code})` : ""}</strong><p>{alert.object_type || "Object"} #{alert.track_id ?? "-"} entered {alert.zone || "a restricted zone"}</p><small>Severity: {alert.severity || "Unknown"} | Score: {alert.score ?? "-"} | Confidence: {alert.confidence == null ? "-" : `${(Number(alert.confidence) * 100).toFixed(1)}%`}</small><small>Zone type: {alert.zone_type || "Unavailable"} | {alert.timestamp || "Time unavailable"}</small><button className="primary notification-action" onClick={(event) => { event.stopPropagation(); openAlert(); }}>Review intrusion</button></aside>;
+  function dismissAlert() {
+    dismissedIds.current.add(alert.id);
+    setAlert(null);
+  }
+  function openAlert() { dismissAlert(); navigate(`/alerts/${alert.id}`); }
+  return <aside className="intrusion-notification" role="alert" onClick={openAlert}><button className="notification-close" aria-label="Dismiss notification" onClick={(event) => { event.stopPropagation(); dismissAlert(); }}>x</button><div className="notification-kicker"><AlertTriangle size={16} /> INTRUSION DETECTED</div><h2>{alert.alert_name || alert.reason || "Restricted zone intrusion"}</h2><strong>{alert.camera_name || `Camera ${alert.camera_id}`}{alert.camera_code ? ` (${alert.camera_code})` : ""}</strong><p>{alert.object_type || "Object"} #{alert.track_id ?? "-"} entered {alert.zone || "a restricted zone"}</p><small>Severity: {alert.severity || "Unknown"} | Score: {alert.score ?? "-"} | Confidence: {alert.confidence == null ? "-" : `${(Number(alert.confidence) * 100).toFixed(1)}%`}</small><small>Zone type: {alert.zone_type || "Unavailable"} | {alert.timestamp || "Time unavailable"}</small><button className="primary notification-action" onClick={(event) => { event.stopPropagation(); openAlert(); }}>Review intrusion</button></aside>;
 }
 
 function AddCameraForm({ onCancel, onSaved }) {

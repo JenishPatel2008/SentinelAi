@@ -37,7 +37,7 @@ def process_video(camera, db: Session, model_path=None, confidence=.45, max_fram
             for track in tracks:
                 db.add(Detection(camera_id=camera.id, track_id=track["track_id"], object_type=track["class"], confidence=track["confidence"], timestamp=now))
             intruder = next((track for track in tracks if track.get("intrusion")), None)
-            if intruder and threat["score"] >= 61 and intruder["track_id"] not in pipeline.__dict__.setdefault("alerted", set()):
+            if intruder and intruder["track_id"] not in pipeline.__dict__.setdefault("alerted", set()):
                 pipeline.alerted.add(intruder["track_id"])
                 evidence = annotate_zones(frame.copy(), pipeline.zones)
                 x1, y1, x2, y2 = map(int, intruder["bbox"])

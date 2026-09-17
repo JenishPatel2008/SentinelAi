@@ -41,7 +41,7 @@ class StreamManager:
             raise ValueError(f"Unable to find video source: {resolved_source}")
 
         self.stop(camera.id)
-        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0}
+        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0}
         thread = Thread(target=self._worker, args=(state, resolved_source, camera.source_type), daemon=True, name=f"sentinel-camera-{camera.id}")
         state["thread"] = thread
         with self.lock:
@@ -84,6 +84,7 @@ class StreamManager:
             state["status"] = "online"
             self._set_camera_status(db, camera_id, "online")
             alerted_tracks = set()
+            source_cycle = state["source_cycle"]
 
             while not state["stop"].is_set():
                 try:
@@ -94,6 +95,11 @@ class StreamManager:
                         state["error"] = state["reader_error"]
                         break
                     continue
+
+                if state["source_cycle"] != source_cycle:
+                    pipeline.reset()
+                    alerted_tracks.clear()
+                    source_cycle = state["source_cycle"]
 
                 tracks, threat = pipeline.process(frame)
                 state["frames_processed"] += 1
@@ -111,7 +117,7 @@ class StreamManager:
                     cv2.putText(display, f"{track['class']} #{track['track_id']} {track['confidence']:.2f}", (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, .5, color, 2)
 
                 intruder = next((track for track in tracks if track.get("intrusion")), None)
-                if intruder and threat["score"] >= 61 and intruder["track_id"] not in alerted_tracks:
+                if intruder and intruder["track_id"] not in alerted_tracks:
                     alerted_tracks.add(intruder["track_id"])
                     zone = intruder["zone_matches"][0]
                     create_alert(db, camera_id, intruder["track_id"], intruder["class"], intruder["confidence"], zone["name"], threat, display, zone["zone_type"])
@@ -148,6 +154,7 @@ class StreamManager:
                 if not ok:
                     if source_type == "video":
                         capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        state["source_cycle"] += 1
                         time.sleep(.02)
                         continue
                     state["reader_error"] = "Camera source stopped returning frames"

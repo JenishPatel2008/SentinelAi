@@ -8,8 +8,9 @@ def _iou(a, b):
 
 class CentroidTracker:
     """Small dependency-free tracker suitable for the local MVP."""
-    def __init__(self, iou_threshold=.25):
+    def __init__(self, iou_threshold=.25, max_missed=3):
         self.iou_threshold = iou_threshold
+        self.max_missed = max_missed
         self.next_id = 1
         self.tracks = {}
 
@@ -32,5 +33,21 @@ class CentroidTracker:
             self.tracks[track_id] = tracked
             used.add(track_id)
             updated.append(tracked)
-        self.tracks = {x["track_id"]: x for x in updated}
+        current_ids = {item["track_id"] for item in updated}
+        for track_id, previous in self.tracks.items():
+            if track_id in current_ids:
+                continue
+            missed = previous.get("missed", 0) + 1
+            if missed <= self.max_missed:
+                self.tracks[track_id] = {**previous, "missed": missed}
+
+        self.tracks = {
+            track_id: track
+            for track_id, track in self.tracks.items()
+            if track_id in current_ids or track.get("missed", 0) <= self.max_missed
+        }
         return updated
+
+    def reset(self):
+        self.next_id = 1
+        self.tracks.clear()

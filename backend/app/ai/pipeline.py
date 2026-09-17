@@ -4,7 +4,7 @@ from .zone_detector import zones_for_frame, point_in_zone
 from .threat_engine import calculate_threat
 
 class DetectionPipeline:
-    def __init__(self, model_path="ai_models/yolo/model.pt", confidence=.45, zones=None, persistence_frames=5, class_confidences=None):
+    def __init__(self, model_path="ai_models/yolo/model.pt", confidence=.45, zones=None, persistence_frames=1, class_confidences=None):
         self.detector = YOLODetector(model_path, confidence, class_confidences=class_confidences)
         self.tracker = CentroidTracker()
         self.zones = zones or []
@@ -17,3 +17,6 @@ class DetectionPipeline:
             item["zone_matches"] = [zone for zone in zones if point_in_zone(item["center"], zone)]
             item["intrusion"] = bool(item["zone_matches"] and item["hits"] >= self.persistence_frames)
         return tracked, calculate_threat(tracked)
+
+    def reset(self):
+        self.tracker.reset()
