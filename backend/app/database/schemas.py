@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from ..utils.urls import sanitize_stream_url, validate_rtsp_url
 
 
 class CameraBase(BaseModel):
@@ -11,8 +12,24 @@ class CameraBase(BaseModel):
     location_lat: float | None = None
     location_lng: float | None = None
     is_active: bool = True
-    source_type: str = "video"
+    source_type: str = "mp4"
     status: str = "offline"
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def supported_source_type(cls, value):
+        value = str(value or "").strip().lower()
+        if value not in {"video", "mp4", "rtsp", "webcam"}:
+            raise ValueError("Source type must be mp4, rtsp, or webcam")
+        return value
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.stream_url and self.stream_url.strip().lower().startswith("rtsp://") and self.source_type != "rtsp":
+            raise ValueError("An RTSP URL requires source_type='rtsp'")
+        if self.source_type == "rtsp":
+            validate_rtsp_url(self.stream_url)
+        return self
 
 
 class CameraCreate(CameraBase):
@@ -30,10 +47,40 @@ class CameraUpdate(BaseModel):
     source_type: str | None = None
     status: str | None = None
 
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def supported_update_source_type(cls, value):
+        if value is None:
+            return value
+        value = str(value).strip().lower()
+        if value not in {"video", "mp4", "rtsp", "webcam"}:
+            raise ValueError("Source type must be mp4, rtsp, or webcam")
+        return value
+
+    @field_validator("stream_url")
+    @classmethod
+    def validate_rtsp_stream_url(cls, value):
+        if value and value.strip().lower().startswith("rtsp://"):
+            return validate_rtsp_url(value)
+        return value
+
+
+class RtspTestRequest(BaseModel):
+    stream_url: str
+
+    @field_validator("stream_url")
+    @classmethod
+    def valid_rtsp_url(cls, value):
+        return validate_rtsp_url(value)
+
 
 class CameraResponse(CameraBase):
     id: int
     created_at: datetime
+
+    @field_serializer("stream_url")
+    def hide_stream_credentials(self, value):
+        return sanitize_stream_url(value) if self.source_type == "rtsp" else value
 
     model_config = ConfigDict(
         from_attributes=True
@@ -87,7 +134,6 @@ class AlertResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True
     )
-
 
 class StreamRequest(BaseModel):
     camera_id: int

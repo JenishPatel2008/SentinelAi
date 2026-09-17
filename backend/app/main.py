@@ -18,6 +18,7 @@ from .api.zones import router as zones_router
 from .api.auth import router as auth_router
 from .api.settings import router as settings_router
 from .core.security import get_current_operator, get_stream_operator
+from .video.stream_manager import stream_manager
 
 
 load_dotenv()
@@ -76,6 +77,11 @@ app.include_router(websocket_router)
 app.include_router(zones_router, dependencies=[Depends(get_current_operator)])
 app.include_router(settings_router, prefix="/api")
 app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
+
+
+@app.on_event("shutdown")
+def stop_stream_workers():
+    stream_manager.stop_all()
 
 
 # ---------------------------------------------------------

@@ -1,7 +1,7 @@
 import { Component, useEffect, useRef, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Activity, AlertTriangle, BarChart3, Bell, Camera, ChevronDown, HelpCircle, LayoutDashboard, LogOut, Map, Search, Settings, Shield, Video } from "lucide-react";
-import { API_BASE_URL, createCamera, decideAlert, deleteCamera, getAlert, getAlerts, getAnalytics, getCameras, getCamerasWithStatuses, getCurrentUser, getDetections, getEvents, getHealth, getSettings, getStreamPreviewUrl, getStreamStatus, loginOperator, logoutOperator, startStream, stopStream, updateCamera, updateSettings, uploadVideo } from "./services/api";
+import { API_BASE_URL, createCamera, decideAlert, deleteCamera, getAlert, getAlerts, getAnalytics, getCameras, getCamerasWithStatuses, getCurrentUser, getDetections, getEvents, getHealth, getSettings, getStreamPreviewUrl, getStreamStatus, loginOperator, logoutOperator, startStream, stopStream, testRtspConnection, updateCamera, updateSettings, uploadVideo } from "./services/api";
 import "./App.css";
 import ZoneEditor from "./components/zones/ZoneEditor";
 import useWebSocket from "./hooks/useWebSocket";
@@ -197,21 +197,28 @@ function AlertNotification() {
 }
 
 function AddCameraForm({ onCancel, onSaved }) {
-  const [form, setForm] = useState({ camera_code: "", name: "", sector: "", source_type: "video", stream_url: "" });
-  const [file, setFile] = useState(null); const [saving, setSaving] = useState(false); const [error, setError] = useState(null);
+  const [form, setForm] = useState({ camera_code: "", name: "", sector: "", source_type: "mp4", stream_url: "" });
+  const [file, setFile] = useState(null); const [saving, setSaving] = useState(false); const [testing, setTesting] = useState(false); const [error, setError] = useState(null); const [testResult, setTestResult] = useState(null);
   function update(field, value) { setForm((current) => ({ ...current, [field]: value })); }
+  function changeSourceType(value) { update("source_type", value); setFile(null); setTestResult(null); setError(null); }
+  async function testRtsp() {
+    setError(null); setTestResult(null);
+    if (!/^rtsp:\/\/[^/\s]+(?:\/\S*)?$/i.test(form.stream_url.trim())) { setError("Enter a valid RTSP URL before testing."); return; }
+    setTesting(true);
+    try { setTestResult(await testRtspConnection(form.stream_url.trim())); } catch (requestError) { setError(requestError.message); } finally { setTesting(false); }
+  }
   async function submit(event) {
     event.preventDefault(); setError(null);
-    if (form.source_type === "video" && !file) { setError("Select an MP4 file before saving this camera."); return; }
+    if (form.source_type === "mp4" && !file) { setError("Select an MP4 file before saving this camera."); return; }
     if (form.source_type === "rtsp" && !form.stream_url.trim().startsWith("rtsp://")) { setError("Enter a valid RTSP URL."); return; }
     setSaving(true);
     try {
-      const uploaded = form.source_type === "video" ? await uploadVideo(file) : null;
+      const uploaded = form.source_type === "mp4" ? await uploadVideo(file) : null;
       await createCamera({ camera_code: form.camera_code.trim(), name: form.name.trim(), sector: form.sector.trim(), source_type: form.source_type, stream_url: uploaded?.stream_url || (form.source_type === "webcam" ? form.stream_url.trim() || "0" : form.stream_url.trim()), is_active: true, status: "offline" });
       onSaved();
     } catch (requestError) { setError(requestError.message); } finally { setSaving(false); }
   }
-  return <form className="camera-form panel" onSubmit={submit}><div className="section-title"><div><h2>Add Camera Source</h2><small>Register a real video, webcam, or RTSP source.</small></div><button type="button" onClick={onCancel}>Cancel</button></div><div className="camera-form-grid"><label>Camera Code<input required value={form.camera_code} onChange={(event) => update("camera_code", event.target.value)} placeholder="CAM-02" /></label><label>Camera Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="South Perimeter" /></label><label>Sector<input required value={form.sector} onChange={(event) => update("sector", event.target.value)} placeholder="Sector 02" /></label><label>Source Type<select value={form.source_type} onChange={(event) => { update("source_type", event.target.value); setFile(null); }}>{[["video", "Video / MP4"], ["webcam", "Webcam"], ["rtsp", "RTSP / IP Camera"]].map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>{form.source_type === "video" && <label>MP4 Video<input required type="file" accept=".mp4,video/mp4" onChange={(event) => setFile(event.target.files?.[0] || null)} />{file && <small>{file.name}</small>}</label>}{form.source_type === "webcam" && <label>Webcam Device Index<input value={form.stream_url} onChange={(event) => update("stream_url", event.target.value)} placeholder="0" /></label>}{form.source_type === "rtsp" && <label>RTSP URL<input required value={form.stream_url} onChange={(event) => update("stream_url", event.target.value)} placeholder="rtsp://user:password@host/stream" /></label>}</div>{error && <div className="form-error">{error}</div>}<div className="page-actions"><button type="submit" className="primary" disabled={saving}>{saving ? "Saving..." : "Save Camera"}</button></div></form>;
+  return <form className="camera-form panel" onSubmit={submit}><div className="section-title"><div><h2>Add Camera Source</h2><small>Register a real MP4, webcam, or RTSP source.</small></div><button type="button" onClick={onCancel}>Cancel</button></div><div className="camera-form-grid"><label>Camera Code<input required value={form.camera_code} onChange={(event) => update("camera_code", event.target.value)} placeholder="CAM-02" /></label><label>Camera Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="South Perimeter" /></label><label>Sector<input required value={form.sector} onChange={(event) => update("sector", event.target.value)} placeholder="Sector 02" /></label><label>Source Type<select value={form.source_type} onChange={(event) => changeSourceType(event.target.value)}>{[["mp4", "Video / MP4"], ["webcam", "Webcam"], ["rtsp", "RTSP / IP Camera"]].map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>{form.source_type === "mp4" && <label>MP4 Video<input required type="file" accept=".mp4,video/mp4" onChange={(event) => setFile(event.target.files?.[0] || null)} />{file && <small>{file.name}</small>}</label>}{form.source_type === "webcam" && <label>Webcam Device Index<input value={form.stream_url} onChange={(event) => update("stream_url", event.target.value)} placeholder="0" /></label>}{form.source_type === "rtsp" && <label>RTSP URL<input required value={form.stream_url} onChange={(event) => { update("stream_url", event.target.value); setTestResult(null); }} placeholder="rtsp://user:password@host/stream" /><button type="button" onClick={testRtsp} disabled={testing || saving}>{testing ? "Testing..." : "Test Connection"}</button>{testResult && <small className={testResult.reachable ? "connection-ok" : "form-error"}>{testResult.message}</small>}</label>}</div>{error && <div className="form-error">{error}</div>}<div className="page-actions"><button type="submit" className="primary" disabled={saving}>{saving ? "Saving..." : "Save Camera"}</button></div></form>;
 }
 
 function EditCameraForm({ camera, onCancel, onSaved }) {

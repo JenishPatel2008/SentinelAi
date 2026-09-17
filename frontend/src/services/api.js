@@ -78,6 +78,13 @@ export function deleteCamera(id) {
   });
 }
 
+export function testRtspConnection(streamUrl) {
+  return request("/api/cameras/test-rtsp", {
+    method: "POST",
+    body: JSON.stringify({ stream_url: streamUrl }),
+  });
+}
+
 export function updateCamera(id, camera) {
   return request(`/api/cameras/${id}`, { method: "PUT", body: JSON.stringify(camera) });
 }

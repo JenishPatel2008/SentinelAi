@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..database.database import PROJECT_ROOT, get_db
 from ..database.models import Camera
-from ..database.schemas import CameraCreate, CameraResponse, CameraUpdate
+from ..database.schemas import CameraCreate, CameraResponse, CameraUpdate, RtspTestRequest
 from ..services.camera_service import (
     create_camera,
     delete_camera,
@@ -17,6 +17,7 @@ from ..services.camera_service import (
     get_cameras,
     update_camera,
 )
+from ..video.stream_manager import StreamManager
 
 
 router = APIRouter(
@@ -71,6 +72,20 @@ def list_cameras(
     db: Session = Depends(get_db),
 ):
     return get_cameras(db)
+
+
+@router.post("/test-rtsp")
+def test_rtsp_connection(request: RtspTestRequest):
+    try:
+        reachable = StreamManager.test_connection(request.stream_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "reachable": reachable,
+        "status": "online" if reachable else "offline",
+        "message": "RTSP stream is reachable." if reachable else "Unable to connect to RTSP camera.",
+    }
 
 
 @router.get(
@@ -139,7 +154,10 @@ def remove_camera(
 
 @router.put("/{camera_id}", response_model=CameraResponse)
 def edit_camera(camera_id: int, camera_data: CameraUpdate, db: Session = Depends(get_db)):
-    camera = update_camera(db, camera_id, camera_data.model_dump(exclude_unset=True))
+    try:
+        camera = update_camera(db, camera_id, camera_data.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     return camera

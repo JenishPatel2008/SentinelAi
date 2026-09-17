@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from threading import Event, Lock, Thread
+from threading import Event, Lock, Thread, current_thread
 import json
 from queue import Empty, Full, Queue
 import time
@@ -13,6 +13,7 @@ from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
 from ..database.models import Camera, Detection, Zone
 from ..services.alert_service import create_alert
+from ..utils.urls import validate_rtsp_url
 
 
 class StreamManager:
@@ -31,14 +32,43 @@ class StreamManager:
         path = Path(source)
         return str(path if path.is_absolute() else PROJECT_ROOT / path)
 
+    @staticmethod
+    def is_rtsp(source, source_type):
+        return source_type == "rtsp" or str(source).lower().startswith("rtsp://")
+
+    @staticmethod
+    def is_looping_file(source_type):
+        return source_type in {"video", "mp4"}
+
+    @staticmethod
+    def rtsp_connection_error():
+        return "Unable to connect to RTSP camera. Check the camera IP, RTSP URL, credentials, and network connection."
+
+    @staticmethod
+    def test_connection(source):
+        validate_rtsp_url(source)
+        capture = cv2.VideoCapture(source)
+        try:
+            return bool(capture.isOpened() and capture.read()[0])
+        finally:
+            capture.release()
+
     def start(self, camera):
         source = camera.stream_url
         if not source:
             raise ValueError("Camera has no video source configured")
 
+        with self.lock:
+            existing = self.streams.get(camera.id)
+        if existing and existing["thread"].is_alive() and not existing["stop"].is_set():
+            return
+
+        if camera.source_type == "rtsp":
+            validate_rtsp_url(source)
+
         resolved_source = self.resolve_source(source, camera.source_type)
         if isinstance(resolved_source, str) and not resolved_source.startswith(("rtsp://", "http://", "https://")) and not Path(resolved_source).exists():
-            raise ValueError(f"Unable to find video source: {resolved_source}")
+            raise ValueError("Unable to find the configured video source.")
 
         self.stop(camera.id)
         state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0}
@@ -53,8 +83,21 @@ class StreamManager:
             state = self.streams.get(camera_id)
         if state:
             state["stop"].set()
-            if state["status"] == "online":
+            if state["status"] in {"starting", "connecting", "online"}:
                 state["status"] = "stopping"
+            thread = state.get("thread")
+            if thread and thread is not current_thread() and thread.is_alive():
+                thread.join(timeout=2)
+
+    def stop_all(self):
+        with self.lock:
+            states = list(self.streams.values())
+        for state in states:
+            state["stop"].set()
+        for state in states:
+            thread = state.get("thread")
+            if thread and thread is not current_thread() and thread.is_alive():
+                thread.join(timeout=2)
 
     def _worker(self, state, source, source_type):
         camera_id = state["camera_id"]
@@ -66,7 +109,7 @@ class StreamManager:
                 state["status"] = "offline"
                 state["error"] = state["reader_error"] or "Camera source did not become ready"
                 return
-            if state["reader_error"]:
+            if state["reader_error"] and source_type != "rtsp":
                 state["status"] = "offline"
                 state["error"] = state["reader_error"]
                 return
@@ -81,8 +124,8 @@ class StreamManager:
                 zones,
                 class_confidences={"person": settings["detection_confidence"], **{item: settings["vehicle_confidence"] for item in vehicle_classes}},
             )
-            state["status"] = "online"
-            self._set_camera_status(db, camera_id, "online")
+            camera_status = "starting"
+            self._set_camera_status(db, camera_id, camera_status)
             alerted_tracks = set()
             source_cycle = state["source_cycle"]
 
@@ -90,11 +133,20 @@ class StreamManager:
                 try:
                     frame = state["frame_queue"].get(timeout=.5)
                 except Empty:
-                    if state["reader_error"]:
+                    if state["status"] != camera_status:
+                        camera_status = state["status"]
+                        self._set_camera_status(db, camera_id, camera_status)
+                    if state["reader_error"] and source_type != "rtsp":
                         state["status"] = "offline"
                         state["error"] = state["reader_error"]
                         break
                     continue
+
+                if camera_status != "online":
+                    camera_status = "online"
+                    state["status"] = "online"
+                    state["error"] = None
+                    self._set_camera_status(db, camera_id, camera_status)
 
                 if state["source_cycle"] != source_cycle:
                     pipeline.reset()
@@ -134,51 +186,75 @@ class StreamManager:
         finally:
             state["stop"].set()
             reader.join(timeout=1)
-            self._set_camera_status(db, camera_id, "offline")
+            with self.lock:
+                is_current = self.streams.get(camera_id) is state
+            if is_current:
+                self._set_camera_status(db, camera_id, "offline")
             db.close()
             if state["status"] != "error":
                 state["status"] = "offline"
 
     @staticmethod
     def _capture_reader(state, source, source_type):
-        capture = cv2.VideoCapture(source)
-        try:
+        retry_delay = 1
+        while not state["stop"].is_set():
+            capture = cv2.VideoCapture(source)
             if not capture.isOpened():
-                state["reader_error"] = f"Unable to open video source: {source}"
-                return
-            source_fps = capture.get(cv2.CAP_PROP_FPS)
-            frame_delay = 1 / source_fps if 0 < source_fps <= 60 else .03
-            state["reader_ready"].set()
-            while not state["stop"].is_set():
-                ok, frame = capture.read()
-                if not ok:
-                    if source_type == "video":
-                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        state["source_cycle"] += 1
-                        time.sleep(.02)
-                        continue
-                    state["reader_error"] = "Camera source stopped returning frames"
+                capture.release()
+                state["status"] = "offline"
+                state["error"] = StreamManager.rtsp_connection_error() if source_type == "rtsp" else "Unable to open video source."
+                state["reader_error"] = state["error"]
+                state["reader_ready"].set()
+                if source_type != "rtsp" or state["stop"].wait(retry_delay):
                     return
+                retry_delay = min(retry_delay * 2, 30)
+                continue
 
-                encoded_ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
-                if encoded_ok:
-                    state["latest"] = encoded.tobytes()
-                    state["last_frame_at"] = time.monotonic()
-                try:
-                    state["frame_queue"].put_nowait(frame)
-                except Full:
-                    try:
-                        state["frame_queue"].get_nowait()
-                    except Empty:
-                        pass
+            try:
+                state["reader_error"] = None
+                state["error"] = None
+                state["status"] = "connecting"
+                state["reader_ready"].set()
+                retry_delay = 1
+                source_fps = capture.get(cv2.CAP_PROP_FPS)
+                frame_delay = 1 / source_fps if 0 < source_fps <= 60 else .03
+                while not state["stop"].is_set():
+                    ok, frame = capture.read()
+                    if not ok:
+                        if StreamManager.is_looping_file(source_type):
+                            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            state["source_cycle"] += 1
+                            time.sleep(.02)
+                            continue
+                        state["status"] = "offline"
+                        state["error"] = StreamManager.rtsp_connection_error() if source_type == "rtsp" else "Camera source stopped returning frames."
+                        state["reader_error"] = state["error"]
+                        break
+
+                    encoded_ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 78])
+                    if encoded_ok:
+                        state["latest"] = encoded.tobytes()
+                        state["last_frame_at"] = time.monotonic()
                     try:
                         state["frame_queue"].put_nowait(frame)
                     except Full:
-                        pass
-                time.sleep(frame_delay)
-        finally:
-            capture.release()
-            state["reader_ready"].set()
+                        try:
+                            state["frame_queue"].get_nowait()
+                        except Empty:
+                            pass
+                        try:
+                            state["frame_queue"].put_nowait(frame)
+                        except Full:
+                            pass
+                    time.sleep(frame_delay)
+            finally:
+                capture.release()
+
+            if source_type != "rtsp" or state["stop"].is_set():
+                return
+            if state["stop"].wait(retry_delay):
+                return
+            retry_delay = min(retry_delay * 2, 30)
 
     @staticmethod
     def _set_camera_status(db, camera_id, status):

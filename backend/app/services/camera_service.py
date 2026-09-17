@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from ..database.models import Camera
 from ..database.schemas import CameraCreate
+from ..utils.urls import validate_rtsp_url
 
 
 def get_cameras(db: Session) -> list[Camera]:
@@ -68,6 +69,12 @@ def update_camera(db: Session, camera_id: int, values: dict) -> Camera | None:
     camera = get_camera(db, camera_id)
     if camera is None:
         return None
+    source_type = values.get("source_type", camera.source_type)
+    stream_url = values.get("stream_url", camera.stream_url)
+    if stream_url and stream_url.strip().lower().startswith("rtsp://") and source_type != "rtsp":
+        raise ValueError("An RTSP URL requires source_type='rtsp'")
+    if source_type == "rtsp":
+        validate_rtsp_url(stream_url)
     if values.get("is_active") is False or values.get("stream_url") not in (None, camera.stream_url):
         from ..video.stream_manager import stream_manager
 

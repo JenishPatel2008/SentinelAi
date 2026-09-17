@@ -1,4 +1,5 @@
 /data
 /.pytest_cache
 /.vscode
-
+Credentials-for-login-as-admin.txt
+sentinel.db
