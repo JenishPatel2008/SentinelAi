@@ -31,6 +31,16 @@ DEFAULT_RUNTIME_SETTINGS = {
     "person_vehicle_proximity_seconds": 20,
     "behavior_alert_cooldown_seconds": 30,
     "behavior_track_cleanup_seconds": 180,
+    "face_recognition_enabled": False,
+    "face_detection_confidence_threshold": 0.5,
+    "face_min_size": 24,
+    "face_recognition_threshold": 0.363,
+    "face_recognition_confirmation_frames": 3,
+    "face_recognition_cooldown_seconds": 15,
+    "face_sample_interval": 5,
+    "face_identity_loss_frames": 5,
+    "face_detection_model_path": "ai_models/face/face_detection_yunet_2023mar.onnx",
+    "face_recognition_model_path": "ai_models/face/face_recognition_sface_2021dec.onnx",
 }
 
 _settings = DEFAULT_RUNTIME_SETTINGS.copy()

@@ -2,7 +2,7 @@ fastapi
 uvicorn
 sqlalchemy
 pydantic
-opencv-python
+opencv-python>=4.8.0
 ultralytics
 websockets
 python-dotenv

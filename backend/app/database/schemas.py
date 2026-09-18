@@ -191,6 +191,40 @@ class WatchlistResponse(WatchlistBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FaceSubjectResponse(BaseModel):
+    id: int
+    label: str
+    category: str
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FaceSubjectUpdate(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    category: str | None = Field(default=None, min_length=1, max_length=50)
+    enabled: bool | None = None
+
+
+class FaceObservationResponse(BaseModel):
+    id: int
+    camera_id: int
+    track_id: int
+    subject_id: int | None = None
+    timestamp: datetime
+    face_status: str
+    recognition_status: str
+    identity_status: str
+    face_confidence: float | None = None
+    similarity: float | None = None
+    face_bbox: str | None = None
+    evidence_path: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class EventResponse(BaseModel):
     id: int
     camera_id: int
@@ -216,6 +250,14 @@ class EventResponse(BaseModel):
     behavior_state: str | None = None
     behavior_reason: str | None = None
     behavior_metadata: str | None = None
+    identity_status: str | None = None
+    subject_id: int | None = None
+    subject_label: str | None = None
+    subject_category: str | None = None
+    face_status: str | None = None
+    face_confidence: float | None = None
+    face_similarity: float | None = None
+    face_bbox: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -254,6 +296,15 @@ class AlertResponse(BaseModel):
     behavior_reason: str | None = None
     behavior_metadata: str | None = None
     behavior_duration_seconds: float | None = None
+    identity_status: str | None = None
+    subject_id: int | None = None
+    subject_label: str | None = None
+    subject_category: str | None = None
+    face_status: str | None = None
+    face_confidence: float | None = None
+    face_similarity: float | None = None
+    face_bbox: str | None = None
+    alarm_status: str | None = None
 
     model_config = ConfigDict(
         from_attributes=True
@@ -285,6 +336,10 @@ class AnalyticsResponse(BaseModel):
     prolonged_stationary: int = 0
     person_vehicle_proximity: int = 0
     night_suspicious_events: int = 0
+    faces_detected: int = 0
+    known_faces: int = 0
+    unknown_faces: int = 0
+    face_watchlist_matches: int = 0
 
 
 ZONE_TYPES = {"restricted", "high_security", "vehicle_restricted", "monitoring"}
@@ -292,6 +347,8 @@ ZONE_TYPES = {"restricted", "high_security", "vehicle_restricted", "monitoring"}
 class ZoneBase(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     zone_type: str
+    security_mode: str = "MONITORED"
+    trusted_person_policy: str = "NO_SPECIAL_POLICY"
     polygon_points: list[dict[str, float]] = Field(min_length=3)
     enabled: bool = True
 
@@ -300,6 +357,22 @@ class ZoneBase(BaseModel):
     def supported_zone_type(cls, value):
         if value not in ZONE_TYPES:
             raise ValueError(f"Unsupported zone type: {value}")
+        return value
+
+    @field_validator("security_mode")
+    @classmethod
+    def supported_security_mode(cls, value):
+        value = value.upper()
+        if value not in {"OPEN", "MONITORED", "PROTECTED"}:
+            raise ValueError("Security mode must be OPEN, MONITORED, or PROTECTED")
+        return value
+
+    @field_validator("trusted_person_policy")
+    @classmethod
+    def supported_trusted_person_policy(cls, value):
+        value = value.upper()
+        if value not in {"NO_SPECIAL_POLICY", "ONLY_TRUSTED"}:
+            raise ValueError("Trusted-person policy must be NO_SPECIAL_POLICY or ONLY_TRUSTED")
         return value
 
     @field_validator("polygon_points")
@@ -316,6 +389,8 @@ class ZoneCreate(ZoneBase):
 class ZoneUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     zone_type: str | None = None
+    security_mode: str | None = None
+    trusted_person_policy: str | None = None
     polygon_points: list[dict[str, float]] | None = Field(default=None, min_length=3)
     enabled: bool | None = None
 
@@ -325,6 +400,20 @@ class ZoneUpdate(BaseModel):
         if value is not None and value not in ZONE_TYPES:
             raise ValueError(f"Unsupported zone type: {value}")
         return value
+
+    @field_validator("security_mode")
+    @classmethod
+    def supported_update_security_mode(cls, value):
+        if value is not None and value.upper() not in {"OPEN", "MONITORED", "PROTECTED"}:
+            raise ValueError("Security mode must be OPEN, MONITORED, or PROTECTED")
+        return value.upper() if value is not None else value
+
+    @field_validator("trusted_person_policy")
+    @classmethod
+    def supported_update_policy(cls, value):
+        if value is not None and value.upper() not in {"NO_SPECIAL_POLICY", "ONLY_TRUSTED"}:
+            raise ValueError("Trusted-person policy must be NO_SPECIAL_POLICY or ONLY_TRUSTED")
+        return value.upper() if value is not None else value
 
     @field_validator("polygon_points")
     @classmethod

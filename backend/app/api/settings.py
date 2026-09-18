@@ -37,6 +37,14 @@ class SettingsUpdate(BaseModel):
     person_vehicle_proximity_seconds: int | None = Field(default=None, ge=1, le=3600)
     behavior_alert_cooldown_seconds: int | None = Field(default=None, ge=1, le=3600)
     behavior_track_cleanup_seconds: int | None = Field(default=None, ge=1, le=3600)
+    face_recognition_enabled: bool | None = None
+    face_detection_confidence_threshold: float | None = Field(default=None, ge=0.1, le=0.99)
+    face_min_size: int | None = Field(default=None, ge=8, le=1000)
+    face_recognition_threshold: float | None = Field(default=None, ge=0.01, le=0.99)
+    face_recognition_confirmation_frames: int | None = Field(default=None, ge=1, le=30)
+    face_recognition_cooldown_seconds: int | None = Field(default=None, ge=1, le=3600)
+    face_sample_interval: int | None = Field(default=None, ge=1, le=60)
+    face_identity_loss_frames: int | None = Field(default=None, ge=1, le=60)
 
 
 @router.get("", dependencies=[Depends(get_current_operator)])

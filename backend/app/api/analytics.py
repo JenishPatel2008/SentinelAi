@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from ..database.database import get_db
-from ..database.models import Alert, Detection, Event
+from ..database.models import Alert, Detection, Event, FaceObservation
 from ..database.schemas import AnalyticsResponse
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -24,6 +24,10 @@ def analytics(db: Session = Depends(get_db)):
         "PERSON_VEHICLE_PROXIMITY": db.query(func.count(Event.id)).filter(Event.behavior_type == "PERSON_VEHICLE_PROXIMITY").scalar() or 0,
     }
     suspicious_activities = sum(behavior_counts.values())
+    faces_detected = db.query(func.count(FaceObservation.id)).filter(FaceObservation.face_status == "detected").scalar() or 0
+    known_faces = db.query(func.count(FaceObservation.id)).filter(FaceObservation.identity_status == "trusted").scalar() or 0
+    unknown_faces = db.query(func.count(FaceObservation.id)).filter(FaceObservation.identity_status.in_({"unknown", "unverified"})).scalar() or 0
+    face_watchlist_matches = db.query(func.count(Event.id)).filter(Event.event_type == "watchlist_match").scalar() or 0
     return AnalyticsResponse(
         total_detections=db.query(func.count(Detection.id)).scalar() or 0,
         active_alerts=db.query(func.count(Alert.id)).filter(Alert.status == "active").scalar() or 0,
@@ -46,4 +50,8 @@ def analytics(db: Session = Depends(get_db)):
         prolonged_stationary=behavior_counts["PROLONGED_STATIONARY"],
         person_vehicle_proximity=behavior_counts["PERSON_VEHICLE_PROXIMITY"],
         night_suspicious_events=db.query(func.count(Event.id)).filter(Event.behavior_type.is_not(None), Event.scene_condition.in_({"NIGHT", "LOW_LIGHT"})).scalar() or 0,
+        faces_detected=faces_detected,
+        known_faces=known_faces,
+        unknown_faces=unknown_faces,
+        face_watchlist_matches=face_watchlist_matches,
     )

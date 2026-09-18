@@ -13,6 +13,8 @@ def as_response(zone):
         "camera_id": zone.camera_id,
         "name": zone.name,
         "zone_type": zone.zone_type,
+        "security_mode": zone.security_mode,
+        "trusted_person_policy": zone.trusted_person_policy,
         "polygon_points": json.loads(zone.polygon_points),
         "enabled": zone.enabled,
         "created_at": zone.created_at,
@@ -29,7 +31,7 @@ def list_zones(camera_id: int, db: Session = Depends(get_db)):
 def create_zone(camera_id: int, data: ZoneCreate, db: Session = Depends(get_db)):
     if db.get(Camera, camera_id) is None:
         raise HTTPException(404, "Camera not found")
-    zone = Zone(camera_id=camera_id, name=data.name, zone_type=data.zone_type, polygon_points=json.dumps(data.polygon_points), enabled=data.enabled)
+    zone = Zone(camera_id=camera_id, name=data.name, zone_type=data.zone_type, security_mode=data.security_mode, trusted_person_policy=data.trusted_person_policy, polygon_points=json.dumps(data.polygon_points), enabled=data.enabled)
     db.add(zone)
     db.commit()
     db.refresh(zone)

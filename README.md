@@ -136,3 +136,27 @@ Defaults are available through `/api/settings`: loitering after 45 seconds with 
 Behavior alerts use the existing evidence snapshot, SQLite event/alert records, WebSocket `alert` messages, and operator confirm/decline flow. Confirming an alert uses the existing laptop alarm path; declining it does not play audio. The Alerts, Event Archive, Live Monitoring, and Analytics views show behavior type, state, reason, or duration where available.
 
 Behavior rules are conservative and camera-coordinate based. They do not claim identity, intent, group behavior, reliable direction-change semantics, or production security accuracy. A signal is only produced when the required track continuity and configured temporal thresholds are satisfied.
+
+## Trusted persons, face detection, and optional recognition
+
+Face intelligence is an enrichment layer after the existing YOLO person track. Sentinel crops each existing person bounding box, detects a face, checks size/blur/brightness, and only then optionally runs OpenCV SFace embedding recognition. It never creates a face tracker and it never treats an unrecognized face as proof of malicious intent.
+
+Face detection works with the OpenCV Haar cascade bundled with the installed OpenCV package. Optional higher-quality YuNet detection uses `ai_models/face/face_detection_yunet_2023mar.onnx`. Recognition uses the OpenCV SFace encoder at `ai_models/face/face_recognition_sface_2021dec.onnx`; recognition remains unavailable, rather than fabricating identities, until that model is installed and `face_recognition_enabled` is enabled through Settings or `/api/settings`.
+
+The SFace matcher uses cosine similarity. The default threshold is `0.363`, so a candidate is recognized only when its cosine similarity is at least that value. Three consistent observations are required by default (`face_recognition_confirmation_frames=3`); temporary unknown or obstructed frames do not immediately replace a confirmed track identity, and repeated failures eventually return the track to unverified.
+
+To install the optional OpenCV Zoo models from PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force ai_models/face | Out-Null
+Invoke-WebRequest https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx -OutFile ai_models/face/face_detection_yunet_2023mar.onnx
+Invoke-WebRequest https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx -OutFile ai_models/face/face_recognition_sface_2021dec.onnx
+```
+
+Register synthetic or explicitly authorized test identities from **Trusted Persons**. Reference images must contain exactly one usable face. Embeddings are stored privately in SQLite and are not returned by subject APIs, observations, alerts, events, WebSockets, logs, or the frontend. The MVP does not provide encryption/key management for the local SQLite embedding blob, so access to `sentinel.db` must be restricted and retention should be managed by the operator.
+
+Protected zones can be selected in the Zone Editor with security mode `PROTECTED` and trusted-person policy `ONLY_TRUSTED`. Existing zones default to `MONITORED`, preserving their prior behavior. In a protected zone, a recognized enabled subject is shown as trusted and does not trigger an identity-only intrusion; an unknown, unverified, obstructed, or not-attempted person is treated as an unverified protected-zone presence and evaluated by the existing threat engine. This includes a backend alarm state, evidence, alert, event, WebSocket message, and incident. Alarm acknowledgement or silencing does not resolve the incident.
+
+Useful endpoints are `/api/face-subjects`, `/api/face-subjects/{id}`, `/api/face-subjects/{id}/reference`, `/api/face-subjects/observations/list`, `/api/alarms/{alert_id}`, `/api/alarms/{alert_id}/acknowledge`, `/api/alarms/{alert_id}/silence`, and `/api/incidents`. No endpoint exposes embedding vectors. Face processing uses the same worker for MP4 and RTSP sources.
+
+Unknown or obstructed status is an identity-verification result, not a criminal or intent classification. Recognition accuracy depends on the SFace/YuNet models, pose, resolution, lighting, blur, occlusion, camera placement, and track continuity.

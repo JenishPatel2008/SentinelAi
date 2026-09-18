@@ -163,6 +163,67 @@ export function updateSettings(settings) {
   return request("/api/settings", { method: "PATCH", body: JSON.stringify(settings) });
 }
 
+export function getTrustedPersons() {
+  return request("/api/face-subjects");
+}
+
+export async function createTrustedPerson({ label, category, enabled, image }) {
+  const body = new FormData();
+  body.append("label", label);
+  body.append("category", category);
+  body.append("enabled", String(enabled));
+  body.append("image", image);
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE_URL}/api/face-subjects`, { method: "POST", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) {
+    let message = `Trusted-person registration failed with status ${response.status}`;
+    try { const data = await response.json(); if (data.detail) message = data.detail; } catch { /* Preserve the HTTP error when the response is not JSON. */ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export function updateTrustedPerson(id, values) {
+  return request(`/api/face-subjects/${id}`, { method: "PATCH", body: JSON.stringify(values) });
+}
+
+export async function replaceTrustedPersonReference(id, image) {
+  const body = new FormData();
+  body.append("image", image);
+  const token = getAuthToken();
+  const response = await fetch(`${API_BASE_URL}/api/face-subjects/${id}/reference`, { method: "POST", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!response.ok) {
+    let message = `Reference replacement failed with status ${response.status}`;
+    try { const data = await response.json(); if (data.detail) message = data.detail; } catch { /* Preserve the HTTP error when the response is not JSON. */ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export function deleteTrustedPerson(id) {
+  return request(`/api/face-subjects/${id}`, { method: "DELETE" });
+}
+
+export function getAlarm(id) {
+  return request(`/api/alarms/${id}`);
+}
+
+export function acknowledgeAlarm(id) {
+  return request(`/api/alarms/${id}/acknowledge`, { method: "POST" });
+}
+
+export function silenceAlarm(id) {
+  return request(`/api/alarms/${id}/silence`, { method: "POST" });
+}
+
+export function getIncidents() {
+  return request("/api/incidents");
+}
+
+export function updateIncident(id, status) {
+  return request(`/api/incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+
 export async function getCamerasWithStatuses() {
   const cameras = await getCameras();
   return Promise.all(cameras.map(async (camera) => {

@@ -11,13 +11,17 @@ from ..ai.pipeline import DetectionPipeline
 from ..ai.anpr import ANPREngine
 from ..ai.night_detector import NightDetector
 from ..ai.behavior_engine import BehaviorEngine
+from ..ai.face_detector import FaceDetector
+from ..ai.face_engine import FaceIntelligence
+from ..ai.face_recognition import SFaceEncoder, embedding_from_bytes
 from ..ai.threat_engine import calculate_threat
 from ..ai.zone_detector import annotate_zones, zones_for_frame
 from ..core.config import get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
-from ..database.models import Camera, Detection, PlateObservation, WatchlistEntry, Zone
+from ..database.models import Camera, Detection, FaceEmbedding, FaceSubject, FaceObservation, PlateObservation, WatchlistEntry, Zone
 from ..api.websocket import manager
-from ..services.alert_service import create_alert, create_behavior_alert, create_night_movement_event
+from ..services.alert_service import create_alert, create_behavior_alert, create_face_event, create_night_movement_event
+from ..services.alarm_service import alarm_service
 from ..utils.urls import validate_rtsp_url
 
 
@@ -120,7 +124,7 @@ class StreamManager:
                 return
 
             self._set_camera_status(db, camera_id, "starting")
-            zones = [{"id": zone.id, "name": zone.name, "zone_type": zone.zone_type, "polygon_points": json.loads(zone.polygon_points), "enabled": zone.enabled} for zone in db.query(Zone).filter(Zone.camera_id == camera_id, Zone.enabled.is_(True)).all()]
+            zones = [{"id": zone.id, "name": zone.name, "zone_type": zone.zone_type, "security_mode": zone.security_mode, "trusted_person_policy": zone.trusted_person_policy, "polygon_points": json.loads(zone.polygon_points), "enabled": zone.enabled} for zone in db.query(Zone).filter(Zone.camera_id == camera_id, Zone.enabled.is_(True)).all()]
             settings = get_runtime_settings()
             vehicle_classes = {"car", "truck", "motorcycle", "bus", "bicycle"}
             pipeline = DetectionPipeline(
@@ -155,6 +159,24 @@ class StreamManager:
                 proximity_time_seconds=settings.get("person_vehicle_proximity_seconds", 20),
                 track_cleanup_seconds=settings.get("behavior_track_cleanup_seconds", 180),
             )
+            face_detector = FaceDetector(
+                PROJECT_ROOT / settings.get("face_detection_model_path", "ai_models/face/face_detection_yunet_2023mar.onnx"),
+                settings.get("face_min_size", 24),
+                settings.get("face_detection_confidence_threshold", .5),
+            )
+            face_encoder = SFaceEncoder(PROJECT_ROOT / settings.get("face_recognition_model_path", "ai_models/face/face_recognition_sface_2021dec.onnx"))
+            face_engine = FaceIntelligence(
+                face_detector,
+                face_encoder,
+                enabled=settings.get("face_recognition_enabled", False),
+                recognition_threshold=settings.get("face_recognition_threshold", .363),
+                confirmation_frames=settings.get("face_recognition_confirmation_frames", 3),
+                sample_interval=settings.get("face_sample_interval", 5),
+                identity_loss_frames=settings.get("face_identity_loss_frames", 5),
+                min_size=settings.get("face_min_size", 24),
+                track_cleanup_seconds=settings.get("behavior_track_cleanup_seconds", 180),
+            )
+            face_subjects = self._load_face_subjects(db)
             watchlist_entries = db.query(WatchlistEntry).filter(WatchlistEntry.enabled.is_(True)).all()
             watchlist = {entry.plate_number: entry for entry in watchlist_entries}
             camera_status = "starting"
@@ -188,6 +210,7 @@ class StreamManager:
                     anpr.reset()
                     night_detector.reset()
                     behavior_engine.reset()
+                    face_engine.reset()
                     alerted_tracks.clear()
                     night_event_times.clear()
                     behavior_alert_times.clear()
@@ -211,16 +234,25 @@ class StreamManager:
                     watchlist=watchlist,
                 ) if settings.get("anpr_enabled", True) else (tracks, [])
                 tracks, behavior_observations = behavior_engine.update(tracks, scene, timestamp=datetime.utcnow())
+                tracks, face_observations, face_events = face_engine.update(frame, tracks, face_subjects, timestamp=datetime.utcnow())
+                for track in tracks:
+                    protected_zones = [zone for zone in track.get("zone_matches", []) if zone.get("security_mode") == "PROTECTED" or zone.get("trusted_person_policy") == "ONLY_TRUSTED"]
+                    track["protected_zone"] = bool(protected_zones)
+                    if protected_zones and track.get("class") == "person":
+                        track["intrusion"] = track.get("identity_status") != "trusted"
                 if state["frames_processed"] % 15 == 0:
                     manager.broadcast_from_sync({
                         "type": "scene",
-                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "tracks": [{"track_id": track["track_id"], "object_type": track["class"], "vehicle_class": track.get("vehicle_class"), "vehicle_class_confidence": track.get("vehicle_class_confidence"), "moving": track.get("moving", False), "behavior_state": track.get("behavior_state", "NORMAL"), "behavior_types": track.get("behavior_types", []), "dwell_seconds": track.get("dwell_seconds", 0), "stationary_seconds": track.get("stationary_seconds", 0)} for track in tracks], "timestamp": datetime.utcnow().isoformat()},
+                        "data": {"camera_id": camera_id, **scene, "moving_tracks": state["moving_tracks"], "tracks": [{"track_id": track["track_id"], "object_type": track["class"], "vehicle_class": track.get("vehicle_class"), "vehicle_class_confidence": track.get("vehicle_class_confidence"), "moving": track.get("moving", False), "behavior_state": track.get("behavior_state", "NORMAL"), "behavior_types": track.get("behavior_types", []), "dwell_seconds": track.get("dwell_seconds", 0), "stationary_seconds": track.get("stationary_seconds", 0), "face_status": track.get("face_status"), "identity_status": track.get("identity_status"), "subject_id": track.get("subject_id"), "subject_label": track.get("subject_label"), "subject_category": track.get("subject_category"), "face_confidence": track.get("face_confidence"), "face_similarity": track.get("face_similarity"), "protected_zone": track.get("protected_zone", False), "intrusion": track.get("intrusion", False)} for track in tracks], "timestamp": datetime.utcnow().isoformat()},
                     })
                 state["detections"] += len(tracks)
                 state["tracks"].update(track["track_id"] for track in tracks)
                 now = datetime.utcnow()
                 for track in tracks:
                     db.add(Detection(camera_id=camera_id, track_id=track["track_id"], class_id=track.get("class_id"), object_type=track["class"], confidence=track["confidence"], category=track.get("category"), vehicle_class=track.get("vehicle_class"), vehicle_class_confidence=track.get("vehicle_class_confidence"), timestamp=now))
+
+                for observation in face_observations:
+                    db.add(FaceObservation(camera_id=camera_id, track_id=observation["track_id"], subject_id=observation.get("subject_id"), timestamp=observation["timestamp"], face_status=observation["face_status"], recognition_status=observation["recognition_status"], identity_status=observation["identity_status"], face_confidence=observation.get("face_confidence"), similarity=observation.get("similarity"), face_bbox=json.dumps(observation.get("face_bbox")) if observation.get("face_bbox") else None))
 
                 observation_rows = {}
                 for observation in plate_observations:
@@ -269,6 +301,7 @@ class StreamManager:
                     ],
                     night_movements=[track for track in night_movements if track.get("intrusion")],
                     behaviors=behavior_observations,
+                    identity_context=tracks,
                 )
 
                 display = annotate_zones(frame.copy(), zones_for_frame(zones, frame.shape[1], frame.shape[0]))
@@ -282,6 +315,12 @@ class StreamManager:
                         cv2.putText(display, "MOVING", (x1, min(display.shape[0] - 8, y2 + 36)), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1)
                     if track.get("behavior_types"):
                         cv2.putText(display, track["behavior_types"][0].replace("_", " "), (x1, min(display.shape[0] - 8, y2 + 52)), cv2.FONT_HERSHEY_SIMPLEX, .42, (0, 80, 255), 1)
+                    if track.get("face_bbox"):
+                        fx1, fy1, fx2, fy2 = map(int, track["face_bbox"])
+                        cv2.rectangle(display, (fx1, fy1), (fx2, fy2), (255, 210, 70), 1)
+                    identity_label = track.get("subject_label") if track.get("identity_status") == "trusted" else track.get("identity_status", "unverified").upper()
+                    if track.get("class") == "person":
+                        cv2.putText(display, identity_label, (x1, min(display.shape[0] - 8, y2 + 68)), cv2.FONT_HERSHEY_SIMPLEX, .42, (255, 210, 70), 1)
                     if track.get("plate_number") and track["plate_number"] != "UNKNOWN":
                         cv2.putText(display, f"PLATE {track['plate_number']} {track['plate_confidence']:.0%}", (x1, min(display.shape[0] - 8, y2 + 18)), cv2.FONT_HERSHEY_SIMPLEX, .48, color, 2)
 
@@ -289,12 +328,17 @@ class StreamManager:
                     px1, py1, px2, py2 = map(int, observation["plate_bbox"])
                     cv2.rectangle(display, (px1, py1), (px2, py2), (255, 190, 60), 1)
 
+                for face_event in face_events:
+                    create_face_event(db, camera_id, face_event, display)
+
                 intruder = next((track for track in tracks if track.get("intrusion")), None)
-                if intruder and intruder["track_id"] not in alerted_tracks:
-                    alerted_tracks.add(intruder["track_id"])
+                if intruder:
                     zone = intruder["zone_matches"][0]
-                    plate_row = observation_rows.get(intruder["track_id"])
-                    create_alert(
+                    alert_key = (intruder["track_id"], zone.get("id"))
+                    if alert_key not in alerted_tracks:
+                        alerted_tracks.add(alert_key)
+                        plate_row = observation_rows.get(intruder["track_id"])
+                        alert = create_alert(
                         db,
                         camera_id,
                         intruder["track_id"],
@@ -320,9 +364,15 @@ class StreamManager:
                             "vehicle_class": intruder.get("vehicle_class"),
                             "vehicle_class_confidence": intruder.get("vehicle_class_confidence"),
                         },
-                        next((item for item in behavior_observations if item.get("track_id") == intruder["track_id"]), None),
-                    )
-                    state["alerts"] += 1
+                            next((item for item in behavior_observations if item.get("track_id") == intruder["track_id"]), None),
+                            identity_info={
+                                "identity_status": intruder.get("identity_status"), "subject_id": intruder.get("subject_id"), "subject_label": intruder.get("subject_label"), "subject_category": intruder.get("subject_category"), "face_status": intruder.get("face_status"), "face_confidence": intruder.get("face_confidence"), "face_similarity": intruder.get("face_similarity"), "face_bbox": intruder.get("face_bbox"), "protected_zone": intruder.get("protected_zone", False),
+                            },
+                            event_type="unverified_person_in_protected_zone" if intruder.get("protected_zone") else None,
+                        )
+                        state["alerts"] += 1
+                        if intruder.get("protected_zone"):
+                            alarm_service.trigger_alarm(camera_id, alert.id, intruder["track_id"], zone["name"], threat["reason"])
 
                 cooldown = settings.get("behavior_alert_cooldown_seconds", 30)
                 for behavior in behavior_observations:
@@ -437,6 +487,18 @@ class StreamManager:
         if camera:
             camera.status = status
             db.commit()
+
+    @staticmethod
+    def _load_face_subjects(db):
+        subjects = []
+        for subject, embedding in db.query(FaceSubject, FaceEmbedding).join(FaceEmbedding, FaceEmbedding.subject_id == FaceSubject.id).filter(FaceSubject.enabled.is_(True)).all():
+            try:
+                vector = embedding_from_bytes(embedding.embedding, embedding.dimension)
+                if vector.size == embedding.dimension:
+                    subjects.append({"id": subject.id, "label": subject.label, "category": subject.category, "enabled": subject.enabled, "embedding": vector})
+            except (TypeError, ValueError):
+                continue
+        return subjects
 
     @staticmethod
     def _save_anpr_crop(crop, camera_id, track_id, kind, timestamp):
