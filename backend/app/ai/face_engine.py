@@ -157,9 +157,10 @@ class FaceIntelligence:
         if current["identity_status"] == "unknown" and previous.get("identity_status") != "unknown":
             events.append(self._event("UNKNOWN_FACE", track, state, timestamp, state["reason"]))
         if current["subject_id"] is not None and current["subject_id"] != previous.get("subject_id"):
+            subject = state.get("subject") or {}
             events.append(self._event("IDENTITY_RECOGNIZED", track, state, timestamp, "Trusted identity confirmed after multi-frame consensus"))
             events.append(self._event("TRUSTED_PERSON_DETECTED", track, state, timestamp, "Trusted person detected"))
-            if track.get("watchlist_match"):
+            if subject.get("category", "").lower() == "watchlist":
                 events.append(self._event("WATCHLIST_MATCH", track, state, timestamp, "Configured watchlist category matched"))
         return events
 

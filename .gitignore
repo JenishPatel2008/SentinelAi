@@ -1,5 +1,7 @@
 data/
 .pytest_cache/
+__pycache__/
+*.py[cod]
 .vscode/
 Credentials-for-login-as-admin.txt
 sentinel.db

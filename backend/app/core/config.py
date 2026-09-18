@@ -1,5 +1,6 @@
 from threading import Lock
 import os
+import json
 
 
 DEFAULT_RUNTIME_SETTINGS = {
@@ -52,11 +53,51 @@ def get_runtime_settings():
         return _settings.copy()
 
 
+def load_persisted_settings():
+    """Load valid runtime overrides after the database schema is available."""
+    from ..database.database import SessionLocal
+    from ..database.models import RuntimeSetting
+
+    db = SessionLocal()
+    try:
+        persisted = {}
+        for row in db.query(RuntimeSetting).all():
+            if row.key not in DEFAULT_RUNTIME_SETTINGS:
+                continue
+            try:
+                persisted[row.key] = json.loads(row.value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        with _settings_lock:
+            _settings.update(persisted)
+    finally:
+        db.close()
+
+
 def get_anpr_model_path():
     return os.getenv("PLATE_MODEL_PATH", "ai_models/anpr/plate_model.pt")
 
 
 def update_runtime_settings(values):
+    from ..database.database import SessionLocal
+    from ..database.models import RuntimeSetting
+
     with _settings_lock:
         _settings.update({key: value for key, value in values.items() if value is not None})
-        return _settings.copy()
+        current = _settings.copy()
+
+    db = SessionLocal()
+    try:
+        for key, value in values.items():
+            if key not in DEFAULT_RUNTIME_SETTINGS or value is None:
+                continue
+            row = db.query(RuntimeSetting).filter(RuntimeSetting.key == key).first()
+            if row is None:
+                row = RuntimeSetting(key=key, value=json.dumps(value))
+                db.add(row)
+            else:
+                row.value = json.dumps(value)
+        db.commit()
+    finally:
+        db.close()
+    return current

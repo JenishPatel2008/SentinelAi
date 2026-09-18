@@ -23,7 +23,11 @@ class SFaceEncoder:
         if not self.available:
             return False
         if self._recognizer is None:
-            self._recognizer = cv2.FaceRecognizerSF.create(str(self.model_path), "")
+            try:
+                self._recognizer = cv2.FaceRecognizerSF.create(str(self.model_path), "")
+            except (cv2.error, OSError):
+                self._recognizer = None
+                return False
         return True
 
     def encode(self, frame, face):
@@ -32,7 +36,7 @@ class SFaceEncoder:
         aligned = None
         raw_detection = face.get("raw_detection")
         if raw_detection is not None:
-            aligned = self._recognizer.alignCrop(frame, np.asarray(raw_detection, dtype=np.float32))
+            aligned = self._recognizer.alignCrop(frame, np.asarray(raw_detection, dtype=np.float32).reshape(1, -1))
         if aligned is None or getattr(aligned, "size", 0) == 0:
             aligned = crop_face(frame, face["face_bbox"])
         if aligned is None or aligned.size == 0:

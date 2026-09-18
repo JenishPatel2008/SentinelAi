@@ -1,6 +1,6 @@
 # Sentinel AI Border Control Unit
 
-Local MVP for AI-assisted border surveillance. It registers simulated CCTV cameras, processes MP4 frames with OpenCV and an optional Ultralytics YOLO model, tracks objects, evaluates a restricted polygon, creates debounced alerts, saves evidence, and exposes results through FastAPI and WebSocket.
+Local MVP for AI-assisted border surveillance. It registers MP4, webcam, and RTSP camera sources, processes frames with OpenCV and Ultralytics YOLO, tracks objects, evaluates restricted polygons, creates debounced alerts, saves evidence, and exposes results through FastAPI and WebSocket.
 
 ## Stack
 
@@ -141,7 +141,7 @@ Behavior rules are conservative and camera-coordinate based. They do not claim i
 
 Face intelligence is an enrichment layer after the existing YOLO person track. Sentinel crops each existing person bounding box, detects a face, checks size/blur/brightness, and only then optionally runs OpenCV SFace embedding recognition. It never creates a face tracker and it never treats an unrecognized face as proof of malicious intent.
 
-Face detection works with the OpenCV Haar cascade bundled with the installed OpenCV package. Optional higher-quality YuNet detection uses `ai_models/face/face_detection_yunet_2023mar.onnx`. Recognition uses the OpenCV SFace encoder at `ai_models/face/face_recognition_sface_2021dec.onnx`; recognition remains unavailable, rather than fabricating identities, until that model is installed and `face_recognition_enabled` is enabled through Settings or `/api/settings`.
+Face detection works with the OpenCV Haar cascade bundled with the installed OpenCV package, and the repository also includes higher-quality YuNet detection at `ai_models/face/face_detection_yunet_2023mar.onnx`. Recognition uses the included OpenCV SFace encoder at `ai_models/face/face_recognition_sface_2021dec.onnx`; it remains disabled by default and returns unverified status, rather than fabricating identities, until `face_recognition_enabled` is enabled through Settings or `/api/settings`.
 
 The SFace matcher uses cosine similarity. The default threshold is `0.363`, so a candidate is recognized only when its cosine similarity is at least that value. Three consistent observations are required by default (`face_recognition_confirmation_frames=3`); temporary unknown or obstructed frames do not immediately replace a confirmed track identity, and repeated failures eventually return the track to unverified.
 
@@ -160,3 +160,23 @@ Protected zones can be selected in the Zone Editor with security mode `PROTECTED
 Useful endpoints are `/api/face-subjects`, `/api/face-subjects/{id}`, `/api/face-subjects/{id}/reference`, `/api/face-subjects/observations/list`, `/api/alarms/{alert_id}`, `/api/alarms/{alert_id}/acknowledge`, `/api/alarms/{alert_id}/silence`, and `/api/incidents`. No endpoint exposes embedding vectors. Face processing uses the same worker for MP4 and RTSP sources.
 
 Unknown or obstructed status is an identity-verification result, not a criminal or intent classification. Recognition accuracy depends on the SFace/YuNet models, pose, resolution, lighting, blur, occlusion, camera placement, and track continuity.
+
+## Runtime audit notes
+
+Camera status is refreshed by the active React monitoring surfaces every three seconds. A worker reports `online` only after an AI frame has completed processing, rather than when OpenCV merely opens the source. MP4 and RTSP use the same stream worker; MP4 sources loop at end-of-file, while RTSP sources reconnect with backoff.
+
+Runtime settings are stored in the `runtime_settings` SQLite table and restored when the backend starts. Settings changes apply to newly started workers. The active frontend is `frontend/src/App.jsx`; older files under `frontend/src/pages/` are retained prototype components and are not used by the active router.
+
+The active UI includes Camera management, Live Monitoring, Alerts, Events, Plate History, Plate Watchlist, Trusted Persons, Incidents, Analytics, Border Map, and Settings. Watchlist and trusted-person APIs return metadata only; face embeddings are never sent to the browser.
+
+For verification, run from the repository root:
+
+```powershell
+.\venv\Scripts\python.exe -m compileall -q backend/app
+.\venv\Scripts\python.exe -m pytest backend/tests -q
+cd frontend
+npm run lint
+npm run build
+```
+
+An actual API smoke path should use an authorized test token, upload `data/videos/test.mp4`, create an MP4 camera, start it, poll `/api/streams/{id}/status` until frames are processed, then stop and delete the temporary camera. A live RTSP test still requires a reachable camera and should not use committed credentials.

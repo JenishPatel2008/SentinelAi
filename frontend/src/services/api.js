@@ -230,8 +230,8 @@ export async function getCamerasWithStatuses() {
     try {
       const stream = await getStreamStatus(camera.id);
       return { ...camera, status: stream.status, stream_status: stream };
-    } catch {
-      return camera;
+    } catch (error) {
+      return { ...camera, status: "unavailable", stream_status: { camera_id: camera.id, status: "unavailable", error: error.message } };
     }
   }));
 }

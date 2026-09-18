@@ -15,10 +15,13 @@ class FaceDetector:
 
     def _load(self):
         if self.model_path and self.model_path.exists() and hasattr(cv2, "FaceDetectorYN"):
-            self._yunet = cv2.FaceDetectorYN.create(
-                str(self.model_path), "", (320, 320), self.confidence_threshold, 0.3, 5000
-            )
-            return
+            try:
+                self._yunet = cv2.FaceDetectorYN.create(
+                    str(self.model_path), "", (320, 320), self.confidence_threshold, 0.3, 5000
+                )
+                return
+            except (cv2.error, OSError):
+                self._yunet = None
         cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
         self._cascade = cv2.CascadeClassifier(str(cascade_path))
         if self._cascade.empty():
@@ -49,10 +52,16 @@ class FaceDetector:
                 confidence = float(detection[14])
                 if confidence < self.confidence_threshold or face_width < self.min_size or face_height < self.min_size:
                     continue
+                raw_detection = detection.astype("float32").copy()
+                raw_detection[0] += offset_x
+                raw_detection[1] += offset_y
+                for x_index, y_index in ((4, 5), (6, 7), (8, 9), (10, 11), (12, 13)):
+                    raw_detection[x_index] += offset_x
+                    raw_detection[y_index] += offset_y
                 result.append({
                     "face_bbox": [x + offset_x, y + offset_y, x + face_width + offset_x, y + face_height + offset_y],
                     "face_confidence": confidence,
-                    "raw_detection": detection.tolist(),
+                    "raw_detection": raw_detection.tolist(),
                     "backend": "yunet",
                 })
             return result

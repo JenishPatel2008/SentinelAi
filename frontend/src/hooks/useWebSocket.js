@@ -1,30 +1,67 @@
-import { useEffect, useRef, useState } from "react";
-import { getAuthToken } from "../services/api";
+import { useEffect, useState } from "react";
+import { API_BASE_URL, getAuthToken } from "../services/api";
+
+let socket = null;
+let reconnectTimer = null;
+let lastMessage = null;
+let connected = false;
+const subscribers = new Set();
+
+function publish(nextMessage = lastMessage) {
+  lastMessage = nextMessage;
+  subscribers.forEach((setState) => setState({ message: lastMessage, connected }));
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || subscribers.size === 0) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    openSocket();
+  }, 3000);
+}
+
+function openSocket() {
+  if (socket || subscribers.size === 0) return;
+  const token = getAuthToken();
+  const wsBase = API_BASE_URL.replace(/^http/, "ws");
+  socket = new WebSocket(`${wsBase}/ws?token=${encodeURIComponent(token || "")}`);
+  socket.onopen = () => {
+    connected = true;
+    publish();
+  };
+  socket.onmessage = (event) => {
+    try {
+      publish(JSON.parse(event.data));
+    } catch {
+      // Ignore malformed messages without interrupting the shared connection.
+    }
+  };
+  socket.onclose = () => {
+    socket = null;
+    connected = false;
+    publish();
+    scheduleReconnect();
+  };
+  socket.onerror = () => socket?.close();
+}
 
 export default function useWebSocket() {
-  const [message, setMessage] = useState(null);
-  const [connected, setConnected] = useState(false);
-  const reconnectTimer = useRef(null);
+  const [state, setState] = useState({ message: lastMessage, connected });
 
   useEffect(() => {
-    let disposed = false;
-    let socket;
-    const connect = () => {
-      const token = getAuthToken();
-      const url = `ws://127.0.0.1:8000/ws?token=${encodeURIComponent(token || "")}`;
-      socket = new WebSocket(url);
-      socket.onopen = () => { if (!disposed) setConnected(true); };
-      socket.onmessage = (event) => { try { setMessage(JSON.parse(event.data)); } catch { /* Ignore malformed messages. */ } };
-      socket.onclose = () => {
-        if (disposed) return;
-        setConnected(false);
-        reconnectTimer.current = setTimeout(connect, 3000);
-      };
-      socket.onerror = () => socket.close();
+    subscribers.add(setState);
+    openSocket();
+    return () => {
+      subscribers.delete(setState);
+      if (subscribers.size === 0) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        socket?.close();
+        socket = null;
+        connected = false;
+      }
     };
-    connect();
-    return () => { disposed = true; clearTimeout(reconnectTimer.current); socket?.close(); };
   }, []);
 
-  return { message, connected };
+  return state;
 }

@@ -319,6 +319,8 @@ class AnalyticsResponse(BaseModel):
     active_alerts: int
     critical_alerts: int
     total_events: int
+    people_detected: int = 0
+    vehicles_detected: int = 0
     night_movements: int = 0
     night_intrusions: int = 0
     night_vehicle_movements: int = 0

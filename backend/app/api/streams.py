@@ -14,6 +14,8 @@ def start_stream(request: StreamRequest, db: Session = Depends(get_db)):
     camera = db.get(Camera, request.camera_id)
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
+    if not camera.is_active:
+        raise HTTPException(status_code=409, detail="Camera processing is disabled")
     try:
         stream_manager.start(camera)
     except ValueError as exc:
@@ -21,14 +23,20 @@ def start_stream(request: StreamRequest, db: Session = Depends(get_db)):
     return {"camera_id": camera.id, "status": "started"}
 
 @router.post("/stop")
-def stop_stream(request: StreamRequest):
+def stop_stream(request: StreamRequest, db: Session = Depends(get_db)):
+    if db.get(Camera, request.camera_id) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     stream_manager.stop(request.camera_id)
     return {"camera_id": request.camera_id, "status": "stopped"}
 
 @router.get("/{camera_id}/status")
-def stream_status(camera_id: int):
+def stream_status(camera_id: int, db: Session = Depends(get_db)):
+    if db.get(Camera, camera_id) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     return stream_manager.status(camera_id)
 
 @router.get("/{camera_id}/mjpeg")
-def stream_preview(camera_id: int):
+def stream_preview(camera_id: int, db: Session = Depends(get_db)):
+    if db.get(Camera, camera_id) is None:
+        raise HTTPException(status_code=404, detail="Camera not found")
     return StreamingResponse(mjpeg_stream(stream_manager, camera_id), media_type="multipart/x-mixed-replace; boundary=frame")

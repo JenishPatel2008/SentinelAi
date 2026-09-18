@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from .database.database import Base, engine, PROJECT_ROOT, ensure_compatibility_columns, reset_runtime_statuses
+from .core.config import load_persisted_settings
 from .database import models
 from .api.cameras import router as cameras_router
 from .api.alerts import router as alerts_router
@@ -60,6 +61,7 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 ensure_compatibility_columns()
+load_persisted_settings()
 reset_runtime_statuses()
 EVIDENCE_DIR = PROJECT_ROOT / "data" / "evidence"
 EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)

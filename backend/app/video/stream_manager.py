@@ -199,12 +199,6 @@ class StreamManager:
                         break
                     continue
 
-                if camera_status != "online":
-                    camera_status = "online"
-                    state["status"] = "online"
-                    state["error"] = None
-                    self._set_camera_status(db, camera_id, camera_status)
-
                 if state["source_cycle"] != source_cycle:
                     pipeline.reset()
                     anpr.reset()
@@ -218,6 +212,13 @@ class StreamManager:
 
                 tracks, threat = pipeline.process(frame)
                 state["frames_processed"] += 1
+                # Capture readiness is not processing readiness. Keep the camera
+                # in starting state until the first frame completes the pipeline.
+                if camera_status != "online":
+                    camera_status = "online"
+                    state["status"] = "online"
+                    state["error"] = None
+                    self._set_camera_status(db, camera_id, camera_status)
                 scene = night_detector.analyze(frame)
                 state["scene"] = scene
                 for track in tracks:

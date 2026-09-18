@@ -5,6 +5,7 @@ import uuid
 
 import cv2
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database.database import PROJECT_ROOT, get_db
@@ -158,6 +159,9 @@ def edit_camera(camera_id: int, camera_data: CameraUpdate, db: Session = Depends
         camera = update_camera(db, camera_id, camera_data.model_dump(exclude_unset=True))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Camera code already exists") from exc
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     return camera
