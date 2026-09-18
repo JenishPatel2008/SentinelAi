@@ -20,6 +20,8 @@ def start_stream(request: StreamRequest, db: Session = Depends(get_db)):
         stream_manager.start(camera)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"camera_id": camera.id, "status": "started"}
 
 @router.post("/stop")

@@ -61,7 +61,7 @@ def create_alert(db: Session, camera_id: int, track_id: int, object_type: str, c
     alert.face_confidence = identity_info.get("face_confidence")
     alert.face_similarity = identity_info.get("face_similarity")
     alert.face_bbox = json.dumps(identity_info.get("face_bbox")) if identity_info.get("face_bbox") else None
-    if identity_info.get("protected_zone"):
+    if identity_info.get("protected_zone") or identity_info.get("alarm_trigger"):
         alert.alarm_status = "ACTIVE"
     db.add(alert)
     db.commit()

@@ -31,6 +31,7 @@ class StreamManager:
     def __init__(self):
         self.streams = {}
         self.lock = Lock()
+        self.starting = set()
 
     @staticmethod
     def resolve_source(source, source_type="video"):
@@ -69,23 +70,32 @@ class StreamManager:
 
         with self.lock:
             existing = self.streams.get(camera.id)
-        if existing and existing["thread"].is_alive() and not existing["stop"].is_set():
-            return
+            if existing and existing["thread"].is_alive() and not existing["stop"].is_set():
+                return
+            if camera.id in self.starting:
+                return
+            self.starting.add(camera.id)
 
-        if camera.source_type == "rtsp":
-            validate_rtsp_url(source)
+        try:
+            if camera.source_type == "rtsp":
+                validate_rtsp_url(source)
 
-        resolved_source = self.resolve_source(source, camera.source_type)
-        if isinstance(resolved_source, str) and not resolved_source.startswith(("rtsp://", "http://", "https://")) and not Path(resolved_source).exists():
-            raise ValueError("Unable to find the configured video source.")
+            resolved_source = self.resolve_source(source, camera.source_type)
+            if isinstance(resolved_source, str) and not resolved_source.startswith(("rtsp://", "http://", "https://")) and not Path(resolved_source).exists():
+                raise ValueError("Unable to find the configured video source.")
 
-        self.stop(camera.id)
-        state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0, "behavior_alerts": 0}
-        thread = Thread(target=self._worker, args=(state, resolved_source, camera.source_type), daemon=True, name=f"sentinel-camera-{camera.id}")
-        state["thread"] = thread
-        with self.lock:
-            self.streams[camera.id] = state
-        thread.start()
+            if not self.stop(camera.id):
+                raise RuntimeError("The previous stream worker is still stopping; try again shortly.")
+
+            state = {"camera_id": camera.id, "status": "starting", "error": None, "source": source, "stop": Event(), "capture": None, "latest": None, "last_frame_at": None, "frame_queue": Queue(maxsize=1), "reader_ready": Event(), "reader_error": None, "source_cycle": 0, "frames_processed": 0, "detections": 0, "tracks": set(), "alerts": 0, "scene": {"scene_condition": "UNKNOWN", "brightness": None, "night_confidence": 0.0}, "moving_tracks": 0, "night_events": 0, "behavior_alerts": 0}
+            thread = Thread(target=self._worker, args=(state, resolved_source, camera.source_type), daemon=True, name=f"sentinel-camera-{camera.id}")
+            state["thread"] = thread
+            with self.lock:
+                self.streams[camera.id] = state
+            thread.start()
+        finally:
+            with self.lock:
+                self.starting.discard(camera.id)
 
     def stop(self, camera_id):
         with self.lock:
@@ -94,19 +104,20 @@ class StreamManager:
             state["stop"].set()
             if state["status"] in {"starting", "connecting", "online"}:
                 state["status"] = "stopping"
+            capture = state.get("capture")
+            if capture is not None:
+                capture.release()
             thread = state.get("thread")
             if thread and thread is not current_thread() and thread.is_alive():
                 thread.join(timeout=2)
+                return not thread.is_alive()
+        return True
 
     def stop_all(self):
         with self.lock:
-            states = list(self.streams.values())
-        for state in states:
-            state["stop"].set()
-        for state in states:
-            thread = state.get("thread")
-            if thread and thread is not current_thread() and thread.is_alive():
-                thread.join(timeout=2)
+            camera_ids = list(self.streams)
+        for camera_id in camera_ids:
+            self.stop(camera_id)
 
     def _worker(self, state, source, source_type):
         camera_id = state["camera_id"]
@@ -182,6 +193,8 @@ class StreamManager:
             camera_status = "starting"
             self._set_camera_status(db, camera_id, camera_status)
             alerted_tracks = set()
+            movement_alerted_tracks = set()
+            face_alarm_tracks = set()
             night_event_times = {}
             behavior_alert_times = {}
             source_cycle = state["source_cycle"]
@@ -206,6 +219,8 @@ class StreamManager:
                     behavior_engine.reset()
                     face_engine.reset()
                     alerted_tracks.clear()
+                    movement_alerted_tracks.clear()
+                    face_alarm_tracks.clear()
                     night_event_times.clear()
                     behavior_alert_times.clear()
                     source_cycle = state["source_cycle"]
@@ -241,6 +256,9 @@ class StreamManager:
                     track["protected_zone"] = bool(protected_zones)
                     if protected_zones and track.get("class") == "person":
                         track["intrusion"] = track.get("identity_status") != "trusted"
+                visible_track_ids = {track["track_id"] for track in tracks}
+                movement_alerted_tracks.intersection_update(visible_track_ids)
+                face_alarm_tracks.intersection_update(visible_track_ids)
                 if state["frames_processed"] % 15 == 0:
                     manager.broadcast_from_sync({
                         "type": "scene",
@@ -331,6 +349,89 @@ class StreamManager:
 
                 for face_event in face_events:
                     create_face_event(db, camera_id, face_event, display)
+
+                # Emit one alert when a tracked object starts moving. The track
+                # set prevents a database/WebSocket storm on every frame.
+                for moving_track in tracks:
+                    if not moving_track.get("moving"):
+                        continue
+                    track_id = moving_track["track_id"]
+                    if track_id in movement_alerted_tracks:
+                        continue
+                    movement_alerted_tracks.add(track_id)
+                    zone = moving_track.get("zone_matches", [{}])[0]
+                    movement_threat = {
+                        "score": 30,
+                        "severity": "MEDIUM",
+                        "reason": f"Movement detected: {moving_track['class'].title()} track #{track_id} moved {moving_track.get('movement_distance', 0)} pixels",
+                    }
+                    create_alert(
+                        db,
+                        camera_id,
+                        track_id,
+                        moving_track["class"],
+                        moving_track["confidence"],
+                        zone.get("name") or "Open area",
+                        movement_threat,
+                        display,
+                        zone.get("zone_type"),
+                        night_info={"movement_distance": moving_track.get("movement_distance")},
+                        identity_info={
+                            "identity_status": moving_track.get("identity_status"),
+                            "subject_id": moving_track.get("subject_id"),
+                            "subject_label": moving_track.get("subject_label"),
+                            "subject_category": moving_track.get("subject_category"),
+                            "face_status": moving_track.get("face_status"),
+                            "face_confidence": moving_track.get("face_confidence"),
+                            "face_similarity": moving_track.get("face_similarity"),
+                            "face_bbox": moving_track.get("face_bbox"),
+                        },
+                        event_type="movement_detected",
+                    )
+
+                # An unknown face or an obstructed face is an immediate operator
+                # alarm unless the existing protected-zone path handles it.
+                for person in tracks:
+                    if person.get("class") != "person" or person.get("protected_zone"):
+                        continue
+                    face_alarm_reason = None
+                    face_event_type = None
+                    if person.get("identity_status") == "unknown" and person.get("face_status") == "detected":
+                        face_alarm_reason = "Unknown face detected"
+                        face_event_type = "unknown_face_detected"
+                    elif person.get("face_status") in {"obstructed", "unavailable"}:
+                        face_alarm_reason = "Possible face covering or obstructed face detected"
+                        face_event_type = "possible_face_covering"
+                    if not face_alarm_reason or person["track_id"] in face_alarm_tracks:
+                        continue
+                    face_alarm_tracks.add(person["track_id"])
+                    zone = person.get("zone_matches", [{}])[0]
+                    face_threat = {"score": 80, "severity": "HIGH", "reason": face_alarm_reason}
+                    alert = create_alert(
+                        db,
+                        camera_id,
+                        person["track_id"],
+                        "person",
+                        person["confidence"],
+                        zone.get("name") or "Open area",
+                        face_threat,
+                        display,
+                        zone.get("zone_type"),
+                        identity_info={
+                            "identity_status": person.get("identity_status"),
+                            "subject_id": person.get("subject_id"),
+                            "subject_label": person.get("subject_label"),
+                            "subject_category": person.get("subject_category"),
+                            "face_status": person.get("face_status"),
+                            "face_confidence": person.get("face_confidence"),
+                            "face_similarity": person.get("face_similarity"),
+                            "face_bbox": person.get("face_bbox"),
+                            "protected_zone": False,
+                            "alarm_trigger": True,
+                        },
+                        event_type=face_event_type,
+                    )
+                    alarm_service.trigger_alarm(camera_id, alert.id, person["track_id"], zone.get("name") or "Open area", face_alarm_reason)
 
                 intruder = next((track for track in tracks if track.get("intrusion")), None)
                 if intruder:
@@ -425,8 +526,10 @@ class StreamManager:
         retry_delay = 1
         while not state["stop"].is_set():
             capture = cv2.VideoCapture(source)
+            state["capture"] = capture
             if not capture.isOpened():
                 capture.release()
+                state["capture"] = None
                 state["status"] = "offline"
                 state["error"] = StreamManager.rtsp_connection_error() if source_type == "rtsp" else "Unable to open video source."
                 state["reader_error"] = state["error"]
@@ -475,6 +578,7 @@ class StreamManager:
                     time.sleep(frame_delay)
             finally:
                 capture.release()
+                state["capture"] = None
 
             if source_type != "rtsp" or state["stop"].is_set():
                 return
