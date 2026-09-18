@@ -12,6 +12,8 @@ DEFAULT_RUNTIME_SETTINGS = {
     "anpr_enabled": True,
     "anpr_frame_interval": 5,
     "anpr_min_ocr_confidence": 0.55,
+    "plate_detection_confidence": 0.35,
+    "plate_model_path": "ai_models/anpr/plate_model.pt",
     "night_brightness_threshold": 60,
     "low_light_brightness_threshold": 100,
     "night_confirmation_frames": 5,

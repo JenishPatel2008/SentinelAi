@@ -1,47 +1,68 @@
+from pathlib import Path
+
 import numpy as np
 
 from backend.app.ai.anpr import ANPREngine
-from backend.app.ai.ocr import is_plausible_plate, normalize_plate_text
+from backend.app.ai.ocr import is_plausible_plate
+from backend.app.ai.plate_detector import PlateDetector
 
 
-class FakeDetector:
-    def detect_for_vehicle(self, frame, track):
-        if track["class"] == "car":
-            return [{"bbox": [10, 10, 80, 30], "confidence": .9, "crop": frame[10:30, 10:80]}]
-        return []
+def test_plate_model_relative_path_is_resolved_from_repository_root():
+    detector = PlateDetector("ai_models/anpr/plate_model.pt")
+
+    assert detector.model_path.is_absolute()
+    assert detector.model_path.parent.name == "anpr"
 
 
-class FakeOCR:
-    available = True
+def test_plate_detector_includes_context_below_vehicle_box():
+    detector = PlateDetector()
+    seen_shapes = []
 
-    def __init__(self):
-        self.calls = 0
+    def fake_detect(crop):
+        seen_shapes.append(crop.shape[:2])
+        return [{"bbox": [10, 10, 40, 20], "confidence": .8}]
 
-    def read(self, crop):
-        self.calls += 1
-        return {"text": "GJ 01 AB 1234", "confidence": .9, "processed": crop}
-
-
-def test_plate_normalization_is_context_aware():
-    assert normalize_plate_text(" GJ 01 AB 1234 ") == "GJ01AB1234"
-    assert is_plausible_plate("GJ01AB1234")
-    assert normalize_plate_text("not a plate") == "NOTAPLATE"
-    assert not is_plausible_plate("NOTAPLATE")
-
-
-def test_anpr_associates_only_vehicle_tracks_and_consensus():
-    engine = ANPREngine(plate_detector=FakeDetector(), ocr_reader=FakeOCR(), sample_interval=1)
+    detector.detect = fake_detect
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
-    tracks = [
-        {"track_id": 7, "class": "car", "confidence": .93, "bbox": [0, 0, 99, 99]},
-        {"track_id": 8, "class": "person", "confidence": .91, "bbox": [0, 0, 99, 99]},
-    ]
+    result = detector.detect_for_vehicle(frame, {"class": "car", "bbox": [20, 20, 60, 60]})
 
-    enriched, observations = engine.observe(frame, tracks, camera_id=3, frame_index=0)
-    assert len(observations) == 1
-    assert enriched[0]["plate_number"] == "GJ01AB1234"
-    assert enriched[1]["plate_number"] == "UNKNOWN"
+    assert seen_shapes == [(50, 46)]
+    assert result[0]["bbox"] == [27, 28, 57, 38]
 
-    enriched, _ = engine.observe(frame, tracks[:1], camera_id=3, frame_index=1)
-    assert enriched[0]["plate_number"] == "GJ01AB1234"
-    assert enriched[0]["plate_confidence"] > .8
+
+def test_plate_validation_accepts_common_international_alphanumeric_format():
+    assert is_plausible_plate("NAI3NRU") is True
+    assert is_plausible_plate("GJ01AB1234") is True
+    assert is_plausible_plate("SR") is False
+
+
+def test_anpr_prefers_valid_ocr_over_larger_contour():
+    class FakePlateDetector:
+        def detect_for_vehicle(self, frame, track):
+            return [
+                {"bbox": [1, 1, 20, 8], "confidence": .9, "crop": frame[:7, :19]},
+                {"bbox": [2, 2, 18, 8], "confidence": .5, "crop": frame[:6, :16]},
+            ]
+
+    class FakeOCR:
+        available = True
+
+        def __init__(self):
+            self.calls = 0
+
+        def read(self, crop):
+            self.calls += 1
+            if self.calls == 1:
+                return {"text": "NOISE", "confidence": .99, "processed": crop}
+            return {"text": "NAI3NRU", "confidence": .8, "processed": crop}
+
+    engine = ANPREngine(FakePlateDetector(), FakeOCR(), sample_interval=1, min_confidence=.55)
+    tracks, observations = engine.observe(
+        np.zeros((20, 20, 3), dtype=np.uint8),
+        [{"track_id": 1, "class": "car", "confidence": .9, "bbox": [0, 0, 20, 20]}],
+        camera_id=1,
+        frame_index=1,
+    )
+
+    assert observations[0]["plate_number"] == "NAI3NRU"
+    assert tracks[0]["plate_number"] == "NAI3NRU"

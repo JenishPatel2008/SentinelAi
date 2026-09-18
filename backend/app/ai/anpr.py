@@ -32,10 +32,20 @@ class ANPREngine:
             if track.get("class") in VEHICLE_CLASSES and should_sample:
                 candidates = self.plate_detector.detect_for_vehicle(frame, track)
                 if candidates:
-                    candidate = max(candidates, key=lambda item: item["confidence"])
-                    ocr = self.ocr_reader.read(candidate["crop"])
-                    normalized = normalize_plate_text(ocr.get("text"))
-                    valid = is_plausible_plate(normalized) and ocr.get("confidence", 0) >= self.min_confidence
+                    attempts = []
+                    for candidate in candidates[:5]:
+                        ocr = self.ocr_reader.read(candidate["crop"])
+                        normalized = normalize_plate_text(ocr.get("text"))
+                        valid = is_plausible_plate(normalized) and ocr.get("confidence", 0) >= self.min_confidence
+                        attempts.append((candidate, ocr, normalized, valid))
+                    candidate, ocr, normalized, valid = max(
+                        attempts,
+                        key=lambda item: (
+                            item[3],
+                            item[1].get("confidence", 0.0),
+                            item[0].get("confidence", 0.0),
+                        ),
+                    )
                     plate_number = normalized if valid else "UNKNOWN"
                     if valid:
                         self._observations[track_id].append({"plate_number": plate_number, "confidence": ocr["confidence"]})

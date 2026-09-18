@@ -99,7 +99,7 @@ $env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 If `PLATE_MODEL_PATH` is absent, Sentinel uses a conservative OpenCV contour fallback to locate plate-shaped regions inside vehicle boxes. This fallback can store `UNKNOWN` observations, but reliable ANPR requires a suitable plate model and visible, sufficiently large plates.
 
-The sampling interval and OCR threshold are configurable through `/api/settings` as `anpr_frame_interval` and `anpr_min_ocr_confidence`. Plate observations are available at `GET /api/plates/history`; local watchlist entries are managed with `/api/watchlist`. Watchlist matches influence only intrusion threat scoring, not every vehicle detection.
+The sampling interval, OCR threshold, plate detector confidence, and model path are configurable through `/api/settings` as `anpr_frame_interval`, `anpr_min_ocr_confidence`, `plate_detection_confidence`, and `plate_model_path`. Relative model paths resolve from the repository root even when the backend is started from `backend/`. Plate observations are available at `GET /api/plates/history`; local watchlist entries are managed with `/api/watchlist`. Watchlist matches influence only intrusion threat scoring, not every vehicle detection.
 
 ### ANPR demonstration
 

@@ -20,13 +20,14 @@ def normalize_plate_text(value):
 
 
 def is_plausible_plate(value):
-    return bool(re.fullmatch(r"[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{3,4}", value or ""))
+    # Accept common international formats while rejecting short OCR noise.
+    return bool(re.fullmatch(r"(?=.*[A-Z])(?=.*[0-9])[A-Z0-9]{5,10}", value or ""))
 
 
 def preprocess_plate_crop(crop):
     if crop is None or crop.size == 0:
         return None
-    enlarged = cv2.resize(crop, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    enlarged = cv2.resize(crop, None, fx=5, fy=5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY)
     contrast = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
     return cv2.GaussianBlur(contrast, (3, 3), 0)
@@ -56,23 +57,28 @@ class OCRReader:
         processed = preprocess_plate_crop(crop)
         if processed is None or not self.available:
             return {"text": None, "confidence": 0.0, "processed": processed}
-        data = self._pytesseract.image_to_data(
-            processed,
-            config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-            output_type=self._pytesseract.Output.DICT,
-        )
-        tokens = []
-        confidences = []
-        for text, confidence in zip(data.get("text", []), data.get("conf", [])):
-            if text.strip():
-                tokens.append(text)
-                try:
-                    if float(confidence) >= 0:
-                        confidences.append(float(confidence) / 100)
-                except (TypeError, ValueError):
-                    pass
-        return {
-            "text": "".join(tokens) or None,
-            "confidence": sum(confidences) / len(confidences) if confidences else 0.0,
-            "processed": processed,
-        }
+        best = {"text": None, "confidence": 0.0, "processed": processed}
+        variants = [processed, cv2.threshold(processed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]]
+        for variant in variants:
+            for psm in (6, 7, 8, 13):
+                data = self._pytesseract.image_to_data(
+                    variant,
+                    config=f"--psm {psm} -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+                    output_type=self._pytesseract.Output.DICT,
+                )
+                tokens = []
+                confidences = []
+                for text, confidence in zip(data.get("text", []), data.get("conf", [])):
+                    if text.strip():
+                        tokens.append(text)
+                        try:
+                            score = float(confidence)
+                            if score >= 0:
+                                confidences.append(score / 100)
+                        except (TypeError, ValueError):
+                            pass
+                candidate = "".join(tokens) or None
+                confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                if candidate and confidence > best["confidence"]:
+                    best = {"text": candidate, "confidence": confidence, "processed": processed}
+        return best

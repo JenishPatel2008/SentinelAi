@@ -9,6 +9,7 @@ import cv2
 
 from ..ai.pipeline import DetectionPipeline
 from ..ai.anpr import ANPREngine
+from ..ai.plate_detector import PlateDetector
 from ..ai.night_detector import NightDetector
 from ..ai.behavior_engine import BehaviorEngine
 from ..ai.face_detector import FaceDetector
@@ -16,7 +17,7 @@ from ..ai.face_engine import FaceIntelligence
 from ..ai.face_recognition import SFaceEncoder, embedding_from_bytes
 from ..ai.threat_engine import calculate_threat
 from ..ai.zone_detector import annotate_zones, zones_for_frame
-from ..core.config import get_runtime_settings
+from ..core.config import get_anpr_model_path, get_runtime_settings
 from ..database.database import PROJECT_ROOT, SessionLocal
 from ..database.models import Camera, Detection, FaceEmbedding, FaceSubject, FaceObservation, PlateObservation, WatchlistEntry, Zone
 from ..api.websocket import manager
@@ -148,7 +149,14 @@ class StreamManager:
                 vehicle_class_history_size=settings.get("vehicle_class_history_size", 5),
                 vehicle_class_change_confirmation_frames=settings.get("vehicle_class_change_confirmation_frames", 3),
             )
+            plate_model_path = Path(get_anpr_model_path())
+            if not plate_model_path.is_absolute():
+                plate_model_path = PROJECT_ROOT / settings.get("plate_model_path", str(plate_model_path))
             anpr = ANPREngine(
+                plate_detector=PlateDetector(
+                    plate_model_path,
+                    confidence=settings.get("plate_detection_confidence", .35),
+                ),
                 sample_interval=settings.get("anpr_frame_interval", 5),
                 min_confidence=settings.get("anpr_min_ocr_confidence", .55),
             )
